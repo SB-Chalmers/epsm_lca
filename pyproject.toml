@@ -7,7 +7,7 @@ name = "epsm_lca"
 version = "0.1.0"
 description = "Explicit material-flow and operational GWP assessment for EPSM"
 requires-python = ">=3.11"
-dependencies = ["epsm_data>=0.3.0.dev1"]
+dependencies = ["epsm_data>=0.4.0.dev1"]
 license = "MIT"
 
 [project.optional-dependencies]
