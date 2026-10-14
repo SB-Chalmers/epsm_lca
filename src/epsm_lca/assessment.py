@@ -261,7 +261,18 @@ def assess(
                     material_missing = True
                     continue
                 impact = amount * factor.value
-                material_total += impact
+                if not math.isfinite(impact):
+                    missing.append(
+                        f"{material_id}: calculated {module} impact must be finite"
+                    )
+                    material_missing = True
+                    continue
+                next_total = material_total + impact
+                if not math.isfinite(next_total):
+                    missing.append("Calculated material impact total must be finite")
+                    material_missing = True
+                else:
+                    material_total = next_total
                 contributions.append(
                     dict(
                         occurrence_id=_get(row, "occurrence_id"),
@@ -302,13 +313,25 @@ def assess(
             )
             operational_missing = True
             continue
-        impact = annual_kwh * settings.period_years * factor.value
-        operational_total += impact
+        period_kwh = annual_kwh * settings.period_years
+        impact = period_kwh * factor.value
+        if not math.isfinite(period_kwh) or not math.isfinite(impact):
+            missing.append(
+                f"{carrier}: calculated period energy and operational impact must be finite"
+            )
+            operational_missing = True
+            continue
+        next_total = operational_total + impact
+        if not math.isfinite(next_total):
+            missing.append("Calculated operational impact total must be finite")
+            operational_missing = True
+        else:
+            operational_total = next_total
         contributions.append(
             dict(
                 carrier=carrier,
                 module="B6",
-                quantity=annual_kwh * settings.period_years,
+                quantity=period_kwh,
                 unit="kWh",
                 gwp_kgco2e=impact,
                 source=factor.source,
@@ -316,11 +339,15 @@ def assess(
         )
     material = None if material_missing else material_total
     operational = None if operational_missing else operational_total
+    total = None if missing else material_total + operational_total
+    if total is not None and not math.isfinite(total):
+        missing.append("Calculated combined impact total must be finite")
+        total = None
     return LCAResult(
         "incomplete" if missing else "complete",
         material,
         operational,
-        None if missing else material_total + operational_total,
+        total,
         tuple(dict.fromkeys(missing)),
         tuple(contributions),
     )

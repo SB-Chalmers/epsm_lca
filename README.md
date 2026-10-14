@@ -35,7 +35,9 @@ factors or unsupported energy boundaries yield `status='incomplete'` and a
 `result.summary()` and `settings.summary()` provide compact inspection. Saved
 result contributions and `to_dict()` outputs are independent copies; editing
 them does not rewrite the assessment. No missing
-quantity or impact is replaced by zero.
+quantity or impact is replaced by zero. Nonfinite calculated contributions or
+totals also make the assessment incomplete, with finite known contributions
+retained for inspection.
 
 Installations are assessed once per actual transition, including like-for-like
 replacement. Retained baseline materials are not repeatedly procured. `include`

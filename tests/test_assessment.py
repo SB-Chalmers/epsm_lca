@@ -108,3 +108,88 @@ def test_assessment_inspection_is_bounded_and_does_not_hide_details():
     assert result.summary()["total_gwp_kgco2e"] == 20300
     assert config.summary()["material_factor_count"] == 1000
     assert len(result.to_dict()["contributions"]) == 1001
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "material_product",
+        "negative_material_product",
+        "material_sum",
+        "operational_quantity",
+        "operational_product",
+        "operational_sum",
+        "combined_sum",
+    ],
+)
+def test_nonfinite_calculated_impacts_are_incomplete_and_serializable(case):
+    import json
+
+    factor_value = (
+        -10
+        if case == "negative_material_product"
+        else 10
+        if case == "material_product"
+        else 1
+    )
+    rows = (
+        (row(mass=1e308),)
+        if case
+        in {
+            "material_product",
+            "negative_material_product",
+            "material_sum",
+            "combined_sum",
+        }
+        else ()
+    )
+    if case == "material_sum":
+        rows *= 2
+    carrier_values = {
+        "electricity": 1e308
+        if case.startswith("operational") or case == "combined_sum"
+        else 100
+    }
+    if case == "operational_sum":
+        carrier_values["district_heat"] = 1e308
+    config = settings(
+        period_years=10 if case == "operational_quantity" else 1,
+        baseline="include",
+        material_factors={"wood": {"A1A3": Factor(factor_value, "kg", "A1A3", "test")}},
+        carrier_factors={
+            carrier: Factor(
+                10 if case == "operational_product" else 1, "kWh", "B6", "test"
+            )
+            for carrier in carrier_values
+        },
+    )
+    delivered = energy()
+    delivered.delivered_by_carrier = carrier_values
+    result = assess(rows, (), delivered, config)
+    assert result.status == "incomplete"
+    assert result.total_gwp_kgco2e is None
+    assert any("finite" in requirement for requirement in result.requirements)
+    json.dumps(result.to_dict(), allow_nan=False)
+
+
+def test_equipment_without_area_cannot_receive_zero_area_impact():
+    core = pytest.importorskip(
+        "epsm_core", reason="Optional Core inventory integration"
+    )
+    quantities = tuple(
+        row for row in core.Building().quantities() if row.kind == "equipment"
+    )
+    assert quantities
+    assert all(row.area_m2 is None for row in quantities)
+    config = settings(
+        baseline="include",
+        material_factors={
+            row.material_id: {"A1A3": Factor(999, "m2", "A1A3", "test")}
+            for row in quantities
+        },
+    )
+    result = assess(quantities, (), energy(), config)
+    assert result.status == "incomplete"
+    assert result.material_gwp_kgco2e is None
+    assert result.total_gwp_kgco2e is None
+    assert "area_m2" in " ".join(result.requirements)
