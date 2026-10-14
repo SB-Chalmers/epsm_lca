@@ -1,5 +1,5 @@
 # Local environments, credentials and caches
-.venv/
+.venv
 venv/
 .env
 .env.*
