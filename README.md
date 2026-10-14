@@ -31,7 +31,10 @@ settings = AssessmentSettings(
 
 `assess(quantities, flows, energy, settings)` returns an `LCAResult`. Missing
 factors or unsupported energy boundaries yield `status='incomplete'` and a
-`None` total. Known contributions and requirements remain inspectable. No missing
+`None` total. Known contributions and requirements remain inspectable.
+`result.summary()` and `settings.summary()` provide compact inspection. Saved
+result contributions and `to_dict()` outputs are independent copies; editing
+them does not rewrite the assessment. No missing
 quantity or impact is replaced by zero.
 
 Installations are assessed once per actual transition, including like-for-like
