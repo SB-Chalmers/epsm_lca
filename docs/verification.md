@@ -1,4 +1,33 @@
-# Verification on 14 October 2026
+# Verification
+
+## Current compatibility, 15 October 2026
+
+LCA 0.2.0 is part of the Core/RC 0.3.0 and EPSM/Database 0.2.0 stabilization
+candidate combination. The [compatibility manifest](https://github.com/SB-Chalmers/epsm/blob/dev/compatibility.json)
+records source pins. [LCA compatibility PR 6](https://github.com/SB-Chalmers/epsm_lca/pull/6)
+passed its installed-wheel matrix on Python 3.11 and 3.13, using both pinned
+and supported `dev` Core/Data dependencies. It includes package and docstring
+checks, five offline notebooks in fresh kernels, and API documentation checks.
+
+[EPSM 0.2.0 verification PR 9](https://github.com/SB-Chalmers/epsm/pull/9) passed the
+platform matrix, including three real annual RC states, complete renovation
+assessments with explicit factors, and saved/reloaded source evidence. Each
+platform run uploads exact revisions and installed versions. These results
+establish software execution and evidence retention for the named runs, not
+accuracy against measured buildings. Required imports fail when unavailable;
+live provider acquisition and live national services are outside that route.
+
+[LCA example PR 7](https://github.com/SB-Chalmers/epsm_lca/pull/7) declares the
+required RC policies in the public annual helper. All seven notebooks also passed
+locally in fresh Python 3.12 kernels with Core/RC 0.3.0 and EPSM 0.2.0, including
+actual EnergyPlus 24.2. These example policies are modelling assumptions.
+
+The numerical comparison below remains dated to its original versions. Core
+height policy and RC recovery behavior affect energy outputs, so those old
+numbers must not be presented as results for the current combination. LCA module
+limits and assumed climate/removal factors still apply.
+
+## Historical verification on 14 October 2026
 
 The implementation is on `codex/building-renovation-lca`, version 0.2.0.
 
@@ -41,7 +70,7 @@ examples use Boverket material values, while carrier climate factors and window
 removal factors are explicitly labelled assumptions. Successful software/engine
 checks do not establish accuracy against measured buildings.
 
-## Merge preparation on 15 October 2026
+## Historical merge preparation on 15 October 2026
 
 Examples and test buildings now select Core's illustrative reference preset
 explicitly. Core's current development version leaves an unconfigured Building
