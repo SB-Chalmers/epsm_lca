@@ -26,3 +26,9 @@ __pycache__/
 
 # Default platform evaluation artifacts
 /outputs/
+
+# Local verification output
+.coverage
+.coverage.*
+htmlcov/
+.ci/

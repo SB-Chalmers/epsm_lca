@@ -1,23 +1,194 @@
-"""Apply explicit factors to material transitions and annual delivered energy.
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 EPSM Development contributors
+# License: See LICENSE at the project root.
+"""Apply explicit climate factors; Core owns quantities and Data owns factors.
 
-This is a declared-boundary GWP calculation, not whole-building LCA
-certification. The public settings and result names remain re-exported here for
-callers that imported from ``epsm_lca.assessment`` directly.
+Calculations use loaded values only. No simulation, data lookup or file access
+occurs here. Settings/results remain exported for historical direct imports.
 """
 
 from __future__ import annotations
 
+import logging
 import math
+from collections.abc import Iterable, Mapping
 
+from ._validation import finite_sum, number, text
 from .result import LCAResult
 from .settings import AssessmentSettings
+
+logger = logging.getLogger(__name__)
+_FIELDS = ("mass_kg", "area_m2", "volume_m3", "count")
 
 
 def _get(item, name, default=None):
     return (
         item.get(name, default)
-        if isinstance(item, dict)
+        if isinstance(item, Mapping)
         else getattr(item, name, default)
+    )
+
+
+def quantity_record(row):
+    """Detach occurrence identity and all known bases, including removed quantities."""
+    identity = text(_get(row, "material_id"), "material_id")
+    result = {
+        key: _get(row, key)
+        for key in (
+            "occurrence_id",
+            "material_name",
+            "element_id",
+            "component_id",
+            "layer_id",
+            "role",
+            "kind",
+        )
+    }
+    result["material_id"] = identity
+    for field in _FIELDS:
+        value = _get(row, field)
+        result[field] = (
+            None if value is None else number(value, field, nonnegative=True)
+        )
+    result["factor_refs"] = dict(_get(row, "factor_refs", {}) or {})
+    return result
+
+
+def flow_rows(flow):
+    """Missing flow fields are invalid, never an empty recorded intervention."""
+    result = []
+    absent = object()
+    for name in ("installed", "removed"):
+        rows = _get(flow, name, absent)
+        if (
+            rows is absent
+            or isinstance(rows, (str, bytes, Mapping))
+            or not isinstance(rows, Iterable)
+        ):
+            raise ValueError(f"Renovation flow requires an explicit {name} sequence")
+        result.append(tuple(rows))
+    return tuple(result)
+
+
+def material_impact(
+    installed, removed, settings, *, stage_id=None, step=None, requirements=()
+):
+    """Count each occurrence once per selected module, retaining finite evidence."""
+    missing, contributions, values = list(requirements), [], []
+    for action, rows in (("installed", installed), ("removed", removed)):
+        modules = tuple(
+            m
+            for m in settings.material_modules
+            if m.startswith("A" if action == "installed" else "C")
+        )
+        for row in rows:
+            record = quantity_record(row)
+            identity = record["material_id"]
+            for module in modules:
+                factor = settings.material_factors.get(identity, {}).get(module)
+                if factor is None:
+                    missing.append(f"{identity}: factor {module} is missing")
+                    continue
+                field = {
+                    "kg": "mass_kg",
+                    "m2": "area_m2",
+                    "m3": "volume_m3",
+                    "item": "count",
+                }[factor.unit]
+                amount = record[field]
+                if amount is None:
+                    missing.append(f"{identity}: known nonnegative {field} is required")
+                    continue
+                impact = amount * factor.value
+                if not math.isfinite(impact):
+                    missing.append(
+                        f"{identity}: calculated {module} impact must be finite"
+                    )
+                    continue
+                values.append(impact)
+                contributions.append(
+                    dict(
+                        occurrence_id=record["occurrence_id"],
+                        material_id=identity,
+                        action=action,
+                        module=module,
+                        quantity=amount,
+                        unit=factor.unit,
+                        factor_value=factor.value,
+                        gwp_kgco2e=impact,
+                        source=factor.source,
+                        stage_id=stage_id,
+                        step=step,
+                    )
+                )
+    total = finite_sum(values)
+    if total is None:
+        missing.append("Calculated material impact total must be finite")
+    return (
+        (None if missing else total),
+        tuple(dict.fromkeys(missing)),
+        tuple(contributions),
+    )
+
+
+def energy_impact(energy, settings):
+    """Assess one annual building state; never accumulate ancestors' operating years."""
+    if not settings.include_energy:
+        return None, (), ()
+    missing, contributions, values = [], [], []
+    if (
+        not _get(energy, "complete", False)
+        or not _get(energy, "annual", False)
+        or _get(energy, "boundary") != settings.energy_boundary
+    ):
+        missing.append(
+            "Complete annual delivered energy for the selected boundary is required"
+        )
+    carriers = _get(energy, "delivered_by_carrier", {})
+    if carriers is None:
+        carriers = {}
+    if not isinstance(carriers, Mapping):
+        raise ValueError("Delivered energy must map carrier names to annual kWh")
+    if not carriers:
+        missing.append("Delivered energy by carrier is missing")
+    for carrier, value in carriers.items():
+        text(carrier, "energy carrier")
+        factor = settings.carrier_factors.get(carrier)
+        if value is None:
+            missing.append(f"{carrier}: annual delivered energy is missing")
+            continue
+        annual_kwh = number(
+            value, f"{carrier}: annual delivered energy", nonnegative=True
+        )
+        if factor is None:
+            missing.append(f"{carrier}: operational factor is missing")
+            continue
+        period_kwh = annual_kwh * settings.period_years
+        impact = period_kwh * factor.value
+        if not math.isfinite(period_kwh) or not math.isfinite(impact):
+            missing.append(
+                f"{carrier}: calculated period energy and operational impact must be finite"
+            )
+            continue
+        values.append(impact)
+        contributions.append(
+            dict(
+                carrier=carrier,
+                module="B6",
+                quantity=period_kwh,
+                unit="kWh",
+                factor_value=factor.value,
+                gwp_kgco2e=impact,
+                source=factor.source,
+            )
+        )
+    total = finite_sum(values)
+    if total is None:
+        missing.append("Calculated operational impact total must be finite")
+    return (
+        (None if missing else total),
+        tuple(dict.fromkeys(missing)),
+        tuple(contributions),
     )
 
 
@@ -29,148 +200,105 @@ def assess(
     *,
     baseline_quantities=None,
     requirements=(),
-):
-    """Assess current state and cumulative interventions without double counting.
+) -> LCAResult:
+    """Assess a reached state and all its interventions (the existing EPSM route).
 
-    ``baseline_quantities`` is necessary for include-baseline assessment after
-    renovation. Unknown masses, absent factors, unsupported energy boundaries
-    and failed energy calculations produce requirements instead of zero impacts.
+    Parameters
+    ----------
+    quantities : iterable
+        Current physical occurrences, with kg, m2, m3 or item quantities.
+    flows : iterable
+        Ordered interventions with explicit installed and removed sequences.
+    energy : object or mapping
+        Complete annual delivered energy by carrier, boundary and annual flag.
+    settings : AssessmentSettings, optional
+        Declared period and factors; absent settings produce an incomplete result.
+    baseline_quantities : iterable, optional
+        Original inventory, required for include-baseline after renovation.
+    requirements : iterable of str, optional
+        Unresolved physical history passed by Core/EPSM.
+
+    Returns
+    -------
+    LCAResult
+        Fixed totals, sourced contributions and missing-input explanations.
+
+    Notes
+    -----
+    New building-based use is taught through assess_renovation. No input is
+    changed and no energy calculation is started.
+
+    Examples
+    --------
+    >>> result = assess((), (), None)
+    >>> result.status
+    'incomplete'
     """
-    missing = list(requirements)
     if settings is None:
         return LCAResult(
             "incomplete",
             None,
             None,
             None,
-            tuple(missing + ["Assessment settings are required"]),
+            (*requirements, "Assessment settings are required"),
         )
-    # Roundtrip freezes inputs and also validates mappings changed after construction.
-    settings = AssessmentSettings.from_dict(settings.to_dict())
+    if not isinstance(settings, AssessmentSettings):
+        raise ValueError("settings must be AssessmentSettings")
+    missing, contributions, values = list(requirements), [], []
     flows = tuple(flows)
-    installations, removals = [], []
     if settings.baseline == "include":
         if flows and baseline_quantities is None:
             missing.append("Original baseline inventory is required")
         else:
-            installations.extend(
-                quantities if baseline_quantities is None else baseline_quantities
+            total, gaps, records = material_impact(
+                quantities if baseline_quantities is None else baseline_quantities,
+                (),
+                settings,
+                step=0,
             )
+            missing.extend(gaps)
+            contributions.extend(records)
+            if total is not None:
+                values.append(total)
     for flow in flows:
-        installations.extend(_get(flow, "installed", ()))
-        removals.extend(_get(flow, "removed", ()))
-    material_total, contributions = 0.0, []
-    material_missing = bool(missing)
-    for action, rows in (("installed", installations), ("removed", removals)):
-        modules = [
-            m
-            for m in settings.material_modules
-            if m.startswith("A" if action == "installed" else "C")
-        ]
-        for row in rows:
-            material_id = _get(row, "material_id")
-            for module in modules:
-                factor = settings.material_factors.get(material_id, {}).get(module)
-                if factor is None:
-                    missing.append(f"{material_id}: factor {module} is missing")
-                    material_missing = True
-                    continue
-                attribute = {
-                    "kg": "mass_kg",
-                    "m2": "area_m2",
-                    "m3": "volume_m3",
-                    "item": "count",
-                }[factor.unit]
-                amount = _get(row, attribute)
-                if amount is None or not math.isfinite(amount) or amount < 0:
-                    missing.append(
-                        f"{material_id}: known nonnegative {attribute} is required"
-                    )
-                    material_missing = True
-                    continue
-                impact = amount * factor.value
-                if not math.isfinite(impact):
-                    missing.append(
-                        f"{material_id}: calculated {module} impact must be finite"
-                    )
-                    material_missing = True
-                    continue
-                next_total = material_total + impact
-                if not math.isfinite(next_total):
-                    missing.append("Calculated material impact total must be finite")
-                    material_missing = True
-                else:
-                    material_total = next_total
-                contributions.append(
-                    dict(
-                        occurrence_id=_get(row, "occurrence_id"),
-                        material_id=material_id,
-                        action=action,
-                        module=module,
-                        quantity=amount,
-                        unit=factor.unit,
-                        gwp_kgco2e=impact,
-                        source=factor.source,
-                    )
-                )
-    operational_total = 0.0
-    operational_missing = False
-    if (
-        not _get(energy, "complete", False)
-        or not _get(energy, "annual", False)
-        or _get(energy, "boundary") != settings.energy_boundary
-    ):
-        missing.append(
-            "Complete annual delivered energy for the selected boundary is required"
+        installed, removed = flow_rows(flow)
+        total, gaps, records = material_impact(
+            installed,
+            removed,
+            settings,
+            stage_id=_get(flow, "stage_id"),
+            step=_get(flow, "order"),
         )
-        operational_missing = True
-    carriers = _get(energy, "delivered_by_carrier", {})
-    if not carriers:
-        missing.append("Delivered energy by carrier is missing")
-        operational_missing = True
-    for carrier, annual_kwh in carriers.items():
-        factor = settings.carrier_factors.get(carrier)
-        if (
-            factor is None
-            or annual_kwh is None
-            or not math.isfinite(annual_kwh)
-            or annual_kwh < 0
-        ):
-            missing.append(
-                f"{carrier}: valid delivered energy and operational factor are required"
-            )
-            operational_missing = True
-            continue
-        period_kwh = annual_kwh * settings.period_years
-        impact = period_kwh * factor.value
-        if not math.isfinite(period_kwh) or not math.isfinite(impact):
-            missing.append(
-                f"{carrier}: calculated period energy and operational impact must be finite"
-            )
-            operational_missing = True
-            continue
-        next_total = operational_total + impact
-        if not math.isfinite(next_total):
-            missing.append("Calculated operational impact total must be finite")
-            operational_missing = True
-        else:
-            operational_total = next_total
-        contributions.append(
-            dict(
-                carrier=carrier,
-                module="B6",
-                quantity=period_kwh,
-                unit="kWh",
-                gwp_kgco2e=impact,
-                source=factor.source,
-            )
+        missing.extend(gaps)
+        contributions.extend(records)
+        if total is not None:
+            values.append(total)
+    material = finite_sum(values)
+    if material is None:
+        missing.append("Calculated material impact total must be finite")
+    material = None if missing else material
+    operational, energy_missing, records = energy_impact(energy, settings)
+    missing.extend(energy_missing)
+    contributions.extend(records)
+    total = None
+    if not missing:
+        total = (
+            finite_sum((material, operational)) if settings.include_energy else material
         )
-    material = None if material_missing else material_total
-    operational = None if operational_missing else operational_total
-    total = None if missing else material_total + operational_total
-    if total is not None and not math.isfinite(total):
-        missing.append("Calculated combined impact total must be finite")
-        total = None
+        if total is None:
+            missing.append("Calculated combined impact total must be finite")
+    logger.debug(
+        "Climate assessment finished: %s",
+        "incomplete" if missing else "complete",
+        extra={
+            "epsm_event": "lca.assessment.completed",
+            "epsm_context": {},
+            "epsm_details": {
+                "requirement_count": len(set(missing)),
+                "flow_count": len(flows),
+            },
+        },
+    )
     return LCAResult(
         "incomplete" if missing else "complete",
         material,
@@ -178,4 +306,6 @@ def assess(
         total,
         tuple(dict.fromkeys(missing)),
         tuple(contributions),
+        include_energy=settings.include_energy,
+        assessment=settings.to_dict(),
     )
