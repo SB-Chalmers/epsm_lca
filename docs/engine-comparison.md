@@ -1,5 +1,9 @@
 # Actual renovation comparison: EnergyPlus and RC
 
+This is a historical comparison. Its version-specific results are retained as
+evidence of that run; they are not current stabilization reference values. See
+[verification](verification.md) for current compatibility checks.
+
 Verified locally on 14 October 2026 with EnergyPlus 24.2.0, Core 0.2.0, Data 0.4.0
 and LCA 0.2.0. The case uses Core's illustrative 20 × 12 m, three-storey geometry,
 Data's 1960 multi-family Existing construction set, Advanced windows, then the
