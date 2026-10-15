@@ -9,15 +9,17 @@ occurs here. Settings/results remain exported for historical direct imports.
 
 from __future__ import annotations
 
-import logging
 import math
 from collections.abc import Iterable, Mapping
+
+from epsm_lca._logging import context_logger
+from epsm_lca._logging import operation as logged_operation
 
 from ._validation import finite_sum, number, text
 from .result import LCAResult
 from .settings import AssessmentSettings
 
-logger = logging.getLogger(__name__)
+logger = context_logger(__name__)
 _FIELDS = ("mass_kg", "area_m2", "volume_m3", "count")
 
 
@@ -192,6 +194,14 @@ def energy_impact(energy, settings):
     )
 
 
+@logged_operation(
+    "lca.assessment",
+    result_details=lambda result: {
+        "status": result.status,
+        "requirement_count": len(result.requirements),
+        "contribution_count": result.summary()["contribution_count"],
+    },
+)
 def assess(
     quantities,
     flows,
@@ -287,18 +297,6 @@ def assess(
         )
         if total is None:
             missing.append("Calculated combined impact total must be finite")
-    logger.debug(
-        "Climate assessment finished: %s",
-        "incomplete" if missing else "complete",
-        extra={
-            "epsm_event": "lca.assessment.completed",
-            "epsm_context": {},
-            "epsm_details": {
-                "requirement_count": len(set(missing)),
-                "flow_count": len(flows),
-            },
-        },
-    )
     return LCAResult(
         "incomplete" if missing else "complete",
         material,

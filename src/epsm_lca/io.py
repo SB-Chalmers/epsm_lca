@@ -4,16 +4,19 @@
 """Explicit report files: validated UTF-8 JSON and atomic publication."""
 
 import json
-import logging
 import os
 import tempfile
 from pathlib import Path
 
+from epsm_lca._logging import context_logger
+from epsm_lca._logging import operation as logged_operation
+
 from .renovation_result import RenovationResult
 
-logger = logging.getLogger(__name__)
+logger = context_logger(__name__)
 
 
+@logged_operation("lca.report.save")
 def save_report(report: RenovationResult, path, *, overwrite=False) -> Path:
     """Publish a report atomically; never create missing parent directories.
 
@@ -94,6 +97,7 @@ def _nonfinite(value):
     raise ValueError(f"Nonfinite report number: {value}")
 
 
+@logged_operation("lca.report.load")
 def load_report(path) -> RenovationResult:
     """Read a supported UTF-8 report, checking inputs and saved accounting."""
     path = Path(path)
