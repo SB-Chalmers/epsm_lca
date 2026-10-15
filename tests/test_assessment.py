@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 EPSM Development contributors
+# License: See LICENSE at the project root.
 from types import SimpleNamespace as NS
 
 import pytest
@@ -177,7 +180,9 @@ def test_equipment_without_area_cannot_receive_zero_area_impact():
         "epsm_core", reason="Optional Core inventory integration"
     )
     quantities = tuple(
-        row for row in core.Building().quantities() if row.kind == "equipment"
+        row
+        for row in core.Building(preset="illustrative-reference").quantities()
+        if row.kind == "equipment"
     )
     assert quantities
     assert all(row.area_m2 is None for row in quantities)

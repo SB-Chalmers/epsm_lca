@@ -1,0 +1,89 @@
+{
+  "date": "2026-10-14",
+  "energyplus_version": "24.2.0-94a887817b",
+  "scope": "Space heating and ventilation fans; each state over 30 years; selected material modules A1A3, A4, A5.1, C1-C4",
+  "assumptions": {
+    "district_heat_kgco2e_per_kwh": 0.05,
+    "electricity_kgco2e_per_kwh": 0.1,
+    "removed_windows_kgco2e_per_m2": {
+      "C1": 0.5,
+      "C2": 0.5,
+      "C3": 0.5,
+      "C4": 0.5
+    }
+  },
+  "rows": [
+    {
+      "step": 0,
+      "state": "Baseline",
+      "epsm_rc": {
+        "annual_delivered_kwh": 92807.60283396505,
+        "material_so_far_kgco2e": 0.0,
+        "energy_kgco2e": 144178.32425094757,
+        "total_kgco2e": 144178.32425094757,
+        "savings_kgco2e": 0.0
+      },
+      "energyplus": {
+        "annual_delivered_kwh": 78302.75533416113,
+        "material_so_far_kgco2e": 0.0,
+        "energy_kgco2e": 122421.0530012417,
+        "total_kgco2e": 122421.0530012417,
+        "savings_kgco2e": 0.0
+      },
+      "rc_above_energyplus_percent": 18.52405759912754
+    },
+    {
+      "step": 1,
+      "state": "Windows",
+      "epsm_rc": {
+        "annual_delivered_kwh": 83794.75320647372,
+        "material_so_far_kgco2e": 11253.772185599995,
+        "energy_kgco2e": 130659.04980971057,
+        "total_kgco2e": 141912.82199531057,
+        "savings_kgco2e": 2265.502255636995
+      },
+      "energyplus": {
+        "annual_delivered_kwh": 70256.72264968805,
+        "material_so_far_kgco2e": 11253.772185599995,
+        "energy_kgco2e": 110352.00397453207,
+        "total_kgco2e": 121605.77616013207,
+        "savings_kgco2e": 815.2768411096331
+      },
+      "rc_above_energyplus_percent": 19.26937387086585
+    },
+    {
+      "step": 2,
+      "state": "Windows and insulation",
+      "epsm_rc": {
+        "annual_delivered_kwh": 34846.2605277761,
+        "material_so_far_kgco2e": 26182.537113599992,
+        "energy_kgco2e": 57236.31079166415,
+        "total_kgco2e": 83418.84790526415,
+        "savings_kgco2e": 60759.47634568342
+      },
+      "energyplus": {
+        "annual_delivered_kwh": 30511.116540161092,
+        "material_so_far_kgco2e": 26182.537113599992,
+        "energy_kgco2e": 50733.594810241644,
+        "total_kgco2e": 76916.13192384163,
+        "savings_kgco2e": 45504.92107740007
+      },
+      "rc_above_energyplus_percent": 14.208408210524714
+    }
+  ],
+  "producers": {
+    "epsm_rc": {
+      "epsm_core": "0.2.0",
+      "epsm_data": "0.4.0",
+      "epsm_lca": "0.2.0",
+      "method": "declared-renovation-gwp/1"
+    },
+    "energyplus": {
+      "epsm_core": "0.2.0",
+      "epsm_data": "0.4.0",
+      "epsm_lca": "0.2.0",
+      "method": "declared-renovation-gwp/1"
+    }
+  },
+  "weather_sha256": "30f267c63fb318a7dd808a8d018b9d593f380f8599a21615672c9094e1aad36b"
+}
