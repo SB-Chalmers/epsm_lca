@@ -194,7 +194,14 @@ def energy_impact(energy, settings):
     )
 
 
-@logged_operation("lca.assessment")
+@logged_operation(
+    "lca.assessment",
+    result_details=lambda result: {
+        "status": result.status,
+        "requirement_count": len(result.requirements),
+        "contribution_count": result.summary()["contribution_count"],
+    },
+)
 def assess(
     quantities,
     flows,

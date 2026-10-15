@@ -50,3 +50,38 @@ def test_rejected_operation_keeps_context_and_reports_failure(caplog):
     assert records[-1].epsm_context["study_id"] == "logging-test"
     assert records[-1].epsm_details["duration_s"] >= 0
     assert not any(record.exc_info for record in records)
+
+
+def test_completed_assessment_retains_missing_input_summary(caplog):
+    with caplog.at_level(logging.INFO):
+        result = assess((), (), None)
+    record = next(
+        record
+        for record in caplog.records
+        if getattr(record, "epsm_event", "") == "lca.assessment.completed"
+    )
+    assert record.epsm_details["status"] == "incomplete"
+    assert record.epsm_details["requirement_count"] == len(result.requirements)
+
+
+def test_completed_renovation_retains_step_summary(caplog):
+    from epsm_core import Building
+
+    from epsm_lca import AssessmentSettings
+
+    with caplog.at_level(logging.INFO):
+        result = assess_renovation(
+            Building(preset="illustrative-reference"),
+            AssessmentSettings(30, include_energy=False),
+        )
+    record = next(
+        record
+        for record in caplog.records
+        if getattr(record, "epsm_event", "") == "lca.renovation.completed"
+    )
+    summary = result.summary()
+    assert record.epsm_details["status"] == summary["status"]
+    assert record.epsm_details["step_count"] == summary["step_count"]
+    assert record.epsm_details["incomplete_step_count"] == len(
+        summary["incomplete_steps"]
+    )

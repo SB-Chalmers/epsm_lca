@@ -59,7 +59,7 @@ def call_with_context(function, *args, log_context=None, **kwargs):
     return function(*args, **kwargs)
 
 
-def operation(event, *, level=logging.INFO, traceback=False):
+def operation(event, *, level=logging.INFO, traceback=False, result_details=None):
     """Trace a public operation, preserving results, exceptions and signatures.
 
     ``log_context`` is an optional keyword-only mapping of scalar identifiers.
@@ -185,6 +185,8 @@ def operation(event, *, level=logging.INFO, traceback=False):
                 raise
             else:
                 selected.update(summary(result))
+                if result_details is not None:
+                    selected.update(result_details(result))
                 emit(context, "completed", started, selected=selected)
                 return result
             finally:

@@ -23,7 +23,14 @@ from .settings import AssessmentSettings
 logger = context_logger(__name__)
 
 
-@logged_operation("lca.renovation")
+@logged_operation(
+    "lca.renovation",
+    result_details=lambda result: {
+        "status": result.summary()["status"],
+        "step_count": result.summary()["step_count"],
+        "incomplete_step_count": len(result.summary()["incomplete_steps"]),
+    },
+)
 def assess_renovation(
     building: Building,
     settings: AssessmentSettings,
