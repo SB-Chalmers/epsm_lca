@@ -13,7 +13,7 @@ installed package.
 | [04 Missing inputs](04_missing_inputs_and_saved_results.ipynb) | Keep removed quantities, inspect missing factors and save/reload a report |
 | [05 Catalogue and Boverket](05_use_catalogue_and_boverket.ipynb) | Use real Data factors, source references and window area conversions |
 
-Use Python 3.11+, LCA 0.2.0, Core 0.2.0 and Data 0.4.0. Install the tested private
+Use Python 3.11+, LCA 0.2.0, Core 0.3.0 and Data 0.4.0. Install the tested private
 Core/Data distributions first, then `python -m pip install '.[examples]'` from
 the LCA repository. Select that Python environment as your notebook kernel.
 Start the kernel in this `examples/` folder so `teaching_case.py` is available.
@@ -45,7 +45,9 @@ Advanced products with Boverket factors. The electricity/district-heating climat
 factors and window-removal factors are clearly labelled assumptions.
 
 Install the `integration` and `examples` extras as well. The integration extra
-needs private EPSM 0.1.0+ and RC 0.2.0+. Their bundled Gothenburg EPW supplies the
+needs private EPSM 0.2.0+ and RC 0.3.0+. The helper explicitly selects
+`epsm_rc_5r1c_v1`, `sensible_only_unlimited_supply` airflow and
+`conductance_multiplier` ground treatment. These are modelling assumptions. Their bundled Gothenburg EPW supplies the
 weather; no service or EnergyPlus installation is needed for the RC route.
 Run all six notebooks with `python scripts/run_examples.py --integration`.
 

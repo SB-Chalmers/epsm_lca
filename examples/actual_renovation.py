@@ -122,6 +122,17 @@ def run_case(*, output, engine="epsm_rc", weather_path=None, energyplus_exe=None
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     directory = Path(output).resolve() / f"run-{stamp}-{uuid4().hex[:8]}"
     directory.mkdir(parents=True, exist_ok=False)
+    energy_options = {}
+    if engine == "epsm_rc":
+        from epsm_rc import RCSettings
+
+        energy_options["settings"] = RCSettings.from_policy(
+            "epsm_rc_5r1c_v1",
+            airflow_policy="sensible_only_unlimited_supply",
+            ground_policy="conductance_multiplier",
+        )
+    elif engine == "energyplus" and energyplus_exe is not None:
+        energy_options["energyplus"] = str(energyplus_exe)
     annual, evaluations = {}, []
     for step, core_building in enumerate((baseline, one, two)):
         model = Building.from_snapshot(core_building.snapshot())
@@ -130,11 +141,7 @@ def run_case(*, output, engine="epsm_rc", weather_path=None, energyplus_exe=None
             engine=engine,
             weather=weather,
             directory=directory / f"step-{step}",
-            **(
-                {"energyplus": str(energyplus_exe)}
-                if engine == "energyplus" and energyplus_exe is not None
-                else {}
-            ),
+            **energy_options,
         )
         if not evaluation.energy.complete or not evaluation.energy.annual:
             raise ValueError(
