@@ -5,12 +5,13 @@
 
 from __future__ import annotations
 
-import logging
 from collections.abc import Mapping
 from importlib.metadata import PackageNotFoundError, version
-from time import perf_counter
 
 from epsm_core import Building
+
+from epsm_lca._logging import context_logger
+from epsm_lca._logging import operation as logged_operation
 
 from ._validation import finite_sum
 from ._version import __version__
@@ -19,9 +20,10 @@ from .energy import AnnualEnergy
 from .renovation_result import RenovationResult, StageResult
 from .settings import AssessmentSettings
 
-logger = logging.getLogger(__name__)
+logger = context_logger(__name__)
 
 
+@logged_operation("lca.renovation")
 def assess_renovation(
     building: Building,
     settings: AssessmentSettings,
@@ -68,21 +70,8 @@ def assess_renovation(
     >>> len(report.stages)
     0
     """
-    started = perf_counter()
     context = (
         {"building_id": building.identifier} if isinstance(building, Building) else {}
-    )
-    logger.info(
-        "Building renovation assessment started",
-        extra={
-            "epsm_event": "lca.renovation.started",
-            "epsm_context": context,
-            "epsm_details": {
-                "step_count": len(building.stages)
-                if isinstance(building, Building)
-                else 0
-            },
-        },
     )
     try:
         result = _assess_renovation(building, settings, energy=energy)
@@ -99,20 +88,6 @@ def assess_renovation(
             },
         )
         raise
-    logger.info(
-        "Building renovation assessment finished: %s",
-        result.summary()["status"],
-        extra={
-            "epsm_event": "lca.renovation.completed",
-            "epsm_context": context,
-            "epsm_details": {
-                "status": result.summary()["status"],
-                "step_count": result.summary()["step_count"],
-                "incomplete_step_count": len(result.summary()["incomplete_steps"]),
-                "duration_s": perf_counter() - started,
-            },
-        },
-    )
     return result
 
 
