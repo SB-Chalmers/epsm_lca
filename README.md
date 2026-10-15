@@ -10,7 +10,7 @@ removed, their impacts, material impact so far, energy impact, total impact and
 savings compared with the baseline. Results are in **kg CO₂e**: climate impact
 expressed as an equivalent mass of carbon dioxide.
 
-**Version:** 0.2.0 development. Python 3.11 or newer. This is a climate assessment
+**Version:** 0.2.0. Python 3.11 or newer. This is a climate assessment
 of declared work and supplied energy, not a claim of complete building
 certification. Future replacements, final demolition and dated operating periods
 are not inferred.
@@ -29,14 +29,19 @@ Start with the [five worked notebooks](examples/README.md). They need no engine,
 database or network once the packages are installed. They include embodied
 (material) and operational (energy) impacts, with answers you can check by hand.
 
-The main call is deliberately small:
+This short example explicitly selects Core’s illustrative building preset. Its
+geometry, services and use assumptions are teaching inputs; replace them with
+your own building information for a study.
 
 ```python
 from epsm_core import Building
 from epsm_data import reference_construction_set
 from epsm_lca import AssessmentSettings, assess_renovation
 
-baseline = Building(construction_set=reference_construction_set())
+baseline = Building(
+    preset="illustrative-reference",
+    construction_set=reference_construction_set(),
+)
 settings = AssessmentSettings(30, include_energy=False)
 report = assess_renovation(baseline, settings)
 print(report.table())

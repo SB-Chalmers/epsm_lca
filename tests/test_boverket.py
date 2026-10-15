@@ -16,9 +16,10 @@ from epsm_lca import AssessmentSettings, assess_renovation
 def test_boverket_window_factors_use_explicit_area_conversion_and_source():
     catalogue = Catalogue.load()
     baseline = Building(
+        preset="illustrative-reference",
         construction_set=catalogue.for_year(
             "multi_family", 1960, state="existing"
-        ).construction_set
+        ).construction_set,
     )
     window = baseline.construction_set.elements[Role.WINDOW]
     renovated = baseline.renovate(
@@ -57,9 +58,10 @@ def test_boverket_window_factors_use_explicit_area_conversion_and_source():
 def test_default_boverket_assessment_keeps_missing_disposal_factors_visible():
     catalogue = Catalogue.load()
     baseline = Building(
+        preset="illustrative-reference",
         construction_set=catalogue.for_year(
             "multi_family", 1960, state="existing"
-        ).construction_set
+        ).construction_set,
     )
     window = baseline.construction_set.elements[Role.WINDOW]
     renovated = baseline.renovate(
@@ -80,9 +82,10 @@ def test_default_boverket_assessment_keeps_missing_disposal_factors_visible():
 def test_material_embodied_values_work_without_catalogue_loading():
     catalogue = Catalogue.load()
     baseline = Building(
+        preset="illustrative-reference",
         construction_set=catalogue.for_year(
             "multi_family", 1960, state="existing"
-        ).construction_set
+        ).construction_set,
     )
     settings = AssessmentSettings.from_building(baseline, period_years=30)
     material = next(

@@ -25,7 +25,7 @@ from epsm_lca import (
 
 @pytest.fixture
 def case():
-    reference = Building()
+    reference = Building(preset="illustrative-reference")
     baseline = Building.from_footprint(
         Footprint.rectangle(5, 5),
         storeys=1,

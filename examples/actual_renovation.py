@@ -41,7 +41,9 @@ def run_case(*, output, engine="epsm_rc", weather_path=None, energyplus_exe=None
         "multi_family", 1960, state="advanced"
     ).construction_set
     baseline = CoreBuilding(
-        identifier="catalogue-renovation-example", construction_set=existing
+        preset="illustrative-reference",
+        identifier="catalogue-renovation-example",
+        construction_set=existing,
     )
     windows = RenovationMeasure(
         "advanced_windows",

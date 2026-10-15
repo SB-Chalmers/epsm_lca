@@ -68,7 +68,7 @@ class StageResult:
     --------
     >>> from epsm_core import Building
     >>> from epsm_lca import AssessmentSettings, assess_renovation
-    >>> step = assess_renovation(Building(), AssessmentSettings(30, include_energy=False)).baseline
+    >>> step = assess_renovation(Building(preset="illustrative-reference"), AssessmentSettings(30, include_energy=False)).baseline
     >>> step.summary()['step']
     0
     >>> step.quantities(action='removed', by_material=True)
@@ -269,7 +269,7 @@ class RenovationResult:
 
     >>> from epsm_core import Building
     >>> from epsm_lca import AssessmentSettings, assess_renovation
-    >>> report = assess_renovation(Building(), AssessmentSettings(30, include_energy=False))
+    >>> report = assess_renovation(Building(preset="illustrative-reference"), AssessmentSettings(30, include_energy=False))
     >>> report.table()[0]['total_kgco2e']
     0.0
     >>> report.summary()['step_count']

@@ -62,7 +62,7 @@ def assess_renovation(
     A baseline without renovation can be assessed for materials only.
 
     >>> from epsm_core import Building
-    >>> report = assess_renovation(Building(), AssessmentSettings(30, include_energy=False))
+    >>> report = assess_renovation(Building(preset="illustrative-reference"), AssessmentSettings(30, include_energy=False))
     >>> report.baseline.total_kgco2e
     0.0
     >>> len(report.stages)

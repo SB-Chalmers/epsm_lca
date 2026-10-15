@@ -40,3 +40,16 @@ Future replacements and final demolition are not inferred. Actual end-to-end
 examples use Boverket material values, while carrier climate factors and window
 removal factors are explicitly labelled assumptions. Successful software/engine
 checks do not establish accuracy against measured buildings.
+
+## Merge preparation on 15 October 2026
+
+Examples and test buildings now select Core's illustrative reference preset
+explicitly. Core's current development version leaves an unconfigured Building
+empty; no physical inputs are inferred by LCA. The package and docstring checks
+also pass against that current Core checkout (76 tests passed, with the two
+optional plotting tests skipped because Matplotlib is absent there). All 78
+package checks pass with plotting in the installed, previously tested wheel set.
+
+The release workflow combines the installed-wheel tests, docstring examples,
+five offline notebooks and documentation checks in one job per Python version.
+It uses pinned Core and Data sources and dedicated read-only access.

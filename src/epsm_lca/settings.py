@@ -174,7 +174,7 @@ class AssessmentSettings:
         >>> from epsm_core import Building
         >>> catalogue = Catalogue.load()
         >>> constructions = catalogue.for_year('multi_family', 1960, state='existing').construction_set
-        >>> building = Building(construction_set=constructions)
+        >>> building = Building(preset="illustrative-reference", construction_set=constructions)
         >>> settings = AssessmentSettings.from_building(building, period_years=30, catalogue=catalogue)
         >>> len(settings.material_factors) > 0
         True
