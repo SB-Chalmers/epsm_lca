@@ -1,5 +1,5 @@
 # Local environments, credentials and caches
-.venv/
+.venv
 venv/
 .env
 .env.*
@@ -26,3 +26,9 @@ __pycache__/
 
 # Default platform evaluation artifacts
 /outputs/
+
+# Local verification output
+.coverage
+.coverage.*
+htmlcov/
+.ci/
