@@ -1,10 +1,21 @@
 # Verification
 
-## Current compatibility, 15 October 2026
+## Current supported combination
 
-LCA 0.2.0 is part of the Core/RC 0.3.0 and EPSM/Database 0.2.0 stabilization
-candidate combination. The [compatibility manifest](https://github.com/SB-Chalmers/epsm/blob/dev/compatibility.json)
-records source pins. [LCA compatibility PR 6](https://github.com/SB-Chalmers/epsm_lca/pull/6)
+The [EPSM v0.3.1 compatibility manifest](https://github.com/SB-Chalmers/epsm/blob/v0.3.1/compatibility.json)
+records the supported package versions and exact source revisions. Use that
+combination for the current examples instead of the historical versions below.
+The [release acceptance record](https://github.com/SB-Chalmers/epsm/blob/v0.3.1/docs/studio-package-readiness.md#acceptance-evidence)
+describes the installed-package handoffs, real-engine checks and retained
+evidence. The [passing platform run](https://github.com/SB-Chalmers/epsm/actions/runs/39429999507)
+includes the Python 3.11 and 3.13 scientific lanes and fresh-kernel LCA examples.
+These checks establish software execution for the named combination, not
+accuracy against measured buildings.
+
+## Historical compatibility, 15 October 2026
+
+LCA 0.2.0 was part of the Core/RC 0.3.0 and EPSM/Database 0.2.0 stabilization
+candidate combination. [LCA compatibility PR 6](https://github.com/SB-Chalmers/epsm_lca/pull/6)
 passed its installed-wheel matrix on Python 3.11 and 3.13, using both pinned
 and supported `dev` Core/Data dependencies. It includes package and docstring
 checks, five offline notebooks in fresh kernels, and API documentation checks.
