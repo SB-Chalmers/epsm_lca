@@ -1,5 +1,16 @@
 # EPSM LCA
 
+<!-- EPSM introduction: Pocket CAD -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/brand/epsm_lca-dark.png">
+  <img src="docs/assets/brand/epsm_lca.png" width="64" height="64" alt="EPSM LCA — material and climate assessment">
+</picture>
+
+Calculate the climate impact of building materials, energy use and renovation steps using declared quantities and factors.
+
+[Explore the EPSM platform](https://github.com/SB-Chalmers/epsm/blob/main/docs/platform.md)
+<!-- /EPSM introduction -->
+
 Calculate the climate impact of a building renovation, one step at a time.
 Start with an `epsm_core.Building`, assign constructions from `epsm_data`, and
 apply your renovation choices. LCA uses the recorded changes and your supplied
