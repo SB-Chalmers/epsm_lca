@@ -1,10 +1,20 @@
-# epsm_lca
+# EPSM LCA
+
+<!-- EPSM introduction: Pocket CAD -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/welcome/epsm_lca-dark.png">
+  <img src="docs/assets/welcome/epsm_lca.png" width="160" height="160" alt="EPSM LCA — One assessed material block inside a lifecycle loop; the active face identifies the assessed element.">
+</picture>
+
+Follow the climate impact of a building and its renovation steps. EPSM LCA
+combines material quantities, supplied annual energy and sourced climate factors
+to report impacts in kg CO₂e. Inspect each contribution, compare alternatives
+and see where information is still missing.
+
+**[Explore the EPSM platform →](https://github.com/SB-Chalmers/epsm/blob/main/docs/platform.md)**
+<!-- /EPSM introduction -->
 
 [![CI](https://img.shields.io/badge/CI-GitHub_Actions-2088FF?logo=githubactions&logoColor=white)](https://github.com/SB-Chalmers/epsm_lca/actions/workflows/ci.yml) [![Releases](https://img.shields.io/badge/releases-GitHub-181717?logo=github&logoColor=white)](https://github.com/SB-Chalmers/epsm_lca/releases) [![Issues](https://img.shields.io/badge/issues-GitHub-181717?logo=github&logoColor=white)](https://github.com/SB-Chalmers/epsm_lca/issues)
-
-Calculate the climate impact of building materials, annual delivered energy and
-renovation steps. LCA uses explicit quantities and sourced climate factors, and
-reports missing inputs alongside results in kg CO₂e.
 
 ## Getting started
 
@@ -47,3 +57,25 @@ the [worked examples](examples/README.md) show the complete inputs.
 
 [MIT](LICENSE). Boverket and other source-data terms remain attached to their records;
 the software license does not replace them.
+
+## People and support
+
+Developed at Chalmers University of Technology as part of the EPSM research platform.
+
+**Funding**: Swedish Energy Agency (Project ID: P2024-04053)
+
+**Partners**:
+
+- Lindholmen Science Park AB
+- Sinom AB
+- Stiftelsen Chalmers Industriteknik
+
+**Team**:
+
+- **Lead Developer**: Sanjay Somanath
+- **Principal Investigator**: Alexander Hollberg
+- **Contributors**: Yinan Yu, Dag Wästberg
+
+<p align="center">
+  <img src="docs/assets/welcome/logos.png" width="100%" alt="Chalmers University of Technology, Chalmers Industriteknik, Sinom, Lindholmen Science Park and Swedish Energy Agency logos">
+</p>
