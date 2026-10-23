@@ -30,7 +30,7 @@ def building_factors(building, *, catalogue=None, production="conservative"):
     for stage in building.stages:
         rows.extend(stage.before.quantities())
         rows.extend(stage.after.quantities())
-    resources = catalogue.detailed.boverket_resources if catalogue is not None else {}
+    resources = catalogue.boverket_resources if catalogue is not None else {}
     factors = {}
     for row in rows:
         refs = dict(row.factor_refs)
