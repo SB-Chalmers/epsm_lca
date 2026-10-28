@@ -156,6 +156,36 @@ def annual_factor_product(factor, annual_kwh, hourly_kwh=None, *, flat=False):
                   "(or allow the flat-demand approximation)")
 
 
+def export_credit(energy, settings):
+    """Module D: avoided grid impact of exported energy over the period, outside the total.
+
+    Uses the exported carrier's own B6 factor, weighted hourly when available.
+    Returns ``(kgco2e or None, lines, requirements)``; the value is a negative
+    credit and is never added to B6 or to combined totals.
+    """
+    lines, missing, values = [], [], []
+    exported = _get(energy, "exported_by_carrier", None) or {}
+    hourly = _get(energy, "exported_hourly_by_carrier", None) or {}
+    for carrier, annual_kwh in exported.items():
+        if not annual_kwh:
+            continue
+        factor = settings.carrier_factors.get(carrier)
+        if factor is None:
+            missing.append(f"{carrier} export: operational factor is missing")
+            continue
+        annual, basis = annual_factor_product(factor, annual_kwh, hourly.get(carrier),
+                                              flat=settings.flat_profile_for_annual_energy)
+        if annual is None:
+            missing.append(f"{carrier} export: {basis}")
+            continue
+        credit = -annual * settings.period_years
+        values.append(credit)
+        lines.append({"carrier": carrier, "module": "D", "quantity": annual_kwh * settings.period_years,
+                      "unit": "kWh", "gwp_kgco2e": credit, "basis": basis, "source": factor.source})
+    total = finite_sum(values) if not missing else None
+    return total, tuple(lines), tuple(missing)
+
+
 def energy_impact(energy, settings):
     """Assess one annual building state; never accumulate ancestors' operating years."""
     if not settings.include_energy:

@@ -45,3 +45,34 @@ operating = assess_renovation_cost(building, costs, energy={0: energy}).operatin
 Operating cost is reported for every state that has supplied energy: annual cost
 by carrier, and the period total (`period_years` × annual). No discounting or price
 escalation is applied.
+
+## From a simulation run to delivered energy
+
+Core converts one run into hourly purchased and exported energy per carrier
+(`district_heating`, `electricity`, `fuel`) from the building's declared delivery:
+
+```python
+from epsm_core.delivered import delivered_energy
+
+delivered = delivered_energy(result, building, dhw_carrier="district_heating")
+energy = AnnualEnergy.from_delivered(building, delivered, source="EnergyPlus run")
+settings = AssessmentSettings(50, energy_boundary=energy.boundary, carrier_factors=...)
+```
+
+- **Space heating:** carrier input from `HeatingDeliverySpec` (district heat,
+  direct electric, heat pump or fuel, with losses, efficiency and COP).
+- **Fans:** electricity, when a specific fan power is declared.
+- **Exhaust-air heat pump:** its electricity, plus backup heat on the carrier you
+  state with `fvp_backup_carrier`.
+- **Domestic hot water:** inside the boundary only when you state `dhw_carrier`
+  (and `dhw_efficiency`, which is above 1 for a heat pump).
+- **Boundary:** the covered uses become the energy boundary, for example
+  `space_heating_fans_and_dhw`. The assessment settings must use the same boundary.
+- **PV:** generation is used on site in the hour it is produced, up to the covered
+  electricity use. The surplus is recorded as exported electricity. Electricity
+  outside the boundary (household or property electricity) is not offset.
+- **Export, carbon:** the credit is reported by `export_credit()` as module D
+  (avoided grid electricity at the electricity profile). It is never added to B6
+  or to combined totals.
+- **Export, cost:** `CostSettings(export_prices=...)` credits export revenue in the
+  operating cost. Exports without a price leave the operating cost incomplete.

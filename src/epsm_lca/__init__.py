@@ -6,7 +6,7 @@
 import logging
 
 from ._version import __version__
-from .assessment import assess
+from .assessment import assess, export_credit
 from .cost import (
     CostSettings,
     OperatingCost,
@@ -38,6 +38,7 @@ __all__ = [
     "RenovationResult",
     "StageResult",
     "assess",
+    "export_credit",
     "assess_renovation",
     "__version__",
 ]

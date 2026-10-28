@@ -110,3 +110,46 @@ def test_operating_cost_uses_prices_of_any_form():
     assert gap.annual is None and "district_heating: energy price is missing" in gap.requirements
     with pytest.raises(ValueError, match="SEK/kWh"):
         CostSettings({}, carrier_prices={"electricity": FactorProfile.constant(1, "EUR/kWh", "s")})
+
+
+def test_core_delivered_energy_feeds_b6_export_credit_and_revenue():
+    from types import SimpleNamespace
+
+    from epsm_core.delivered import delivered_energy
+
+    from epsm_lca import export_credit
+
+    building = Building(preset="illustrative-reference")
+    generation = [2.0 if 8 <= h % 24 < 17 else 0.0 for h in range(8760)]
+    run = SimpleNamespace(hourly={
+        "space_heating_demand_kwh": HEAT, "dhw_load_kwh": [1.0] * 8760,
+        "space_heating_carrier_input_kwh": HEAT, "ventilation_fan_electricity_kwh": [0.4] * 8760,
+        "pv_generation_kwh": generation}, diagnostics={})
+    delivered = delivered_energy(run, building, dhw_carrier="district_heating")
+    energy = AnnualEnergy.from_delivered(building, delivered, source="synthetic run")
+    assert energy.boundary == "space_heating_fans_and_dhw"
+    assert energy.exported_by_carrier["electricity"] == pytest.approx(
+        sum(generation) - sum(min(g, 0.4) for g in generation))
+    assert AnnualEnergy.from_dict(json.loads(json.dumps(energy.to_dict()))) == energy
+
+    grid = FactorProfile.weekday_weekend(WEEKDAY, WEEKEND, UNIT, "synthetic grid")
+    settings = AssessmentSettings(30, energy_boundary=energy.boundary, material_modules=("A1A3",),
+                                  carrier_factors={"electricity": grid, "district_heating":
+                                                   FactorProfile.constant(0.06, UNIT, "s")})
+    step = assess_renovation(building, settings, energy={0: energy}).baseline
+    assert step.status == "complete"
+    credit, lines, missing = export_credit(energy, settings)
+    assert not missing and credit == pytest.approx(
+        -30 * grid.apply(energy.exported_hourly_by_carrier["electricity"]))
+    assert step.energy_kgco2e > 0  # the credit is reported apart from B6
+
+    prices = CostSettings({}, period_years=30, carrier_prices={
+        "electricity": FactorProfile.constant(1.5, "SEK/kWh", "s"),
+        "district_heating": FactorProfile.constant(0.9, "SEK/kWh", "s")})
+    gap = assess_renovation_cost(building, prices, energy={0: energy}).operating[0]
+    assert gap.annual is None and "electricity export: export price is missing" in gap.requirements
+    paid = CostSettings({}, period_years=30, carrier_prices=prices.carrier_prices,
+                        export_prices={"electricity": FactorProfile.constant(0.5, "SEK/kWh", "s")})
+    operating = assess_renovation_cost(building, paid, energy={0: energy}).operating[0]
+    assert operating.annual_by_carrier["electricity_export"] == pytest.approx(
+        -0.5 * energy.exported_by_carrier["electricity"])

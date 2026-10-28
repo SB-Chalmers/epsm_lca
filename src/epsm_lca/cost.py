@@ -48,15 +48,17 @@ class CostSettings:
     currency: str = "SEK"
     carrier_prices: Mapping[str, FactorProfile] = field(default_factory=dict)
     period_years: float | None = None
+    export_prices: Mapping[str, FactorProfile] = field(default_factory=dict)
     flat_profile_for_annual_energy: bool = False
 
     def __post_init__(self):
-        prices = dict(self.carrier_prices)
-        for carrier, price in prices.items():
-            if not isinstance(price, FactorProfile) or price.unit != f"{self.currency}/kWh":
-                raise ValueError(f"{carrier}: prices must be FactorProfile records in "
-                                 f"{self.currency}/kWh")
-        object.__setattr__(self, "carrier_prices", MappingProxyType(prices))
+        for name in ("carrier_prices", "export_prices"):
+            prices = dict(getattr(self, name))
+            for carrier, price in prices.items():
+                if not isinstance(price, FactorProfile) or price.unit != f"{self.currency}/kWh":
+                    raise ValueError(f"{carrier}: prices must be FactorProfile records in "
+                                     f"{self.currency}/kWh")
+            object.__setattr__(self, name, MappingProxyType(prices))
         if self.period_years is not None and not (
                 isinstance(self.period_years, (int, float)) and 0 < self.period_years < math.inf):
             raise ValueError("period_years must be finite and positive")
@@ -201,9 +203,27 @@ def operating_cost(building, settings, energy):
             lines.append({"carrier": carrier, "annual_kwh": annual_kwh, "annual_cost": annual,
                           "average_price": annual / annual_kwh if annual_kwh else price.mean,
                           "price_kind": price.kind, "basis": basis, "source": price.source})
+        exports_priced = True
+        for carrier, annual_kwh in supplied.exported_by_carrier.items():
+            if not annual_kwh:
+                continue
+            price = settings.export_prices.get(carrier)
+            revenue, basis = (None, "export price is missing") if price is None else \
+                annual_factor_product(price, annual_kwh,
+                                      supplied.exported_hourly_by_carrier.get(carrier),
+                                      flat=settings.flat_profile_for_annual_energy)
+            if revenue is None:
+                requirements.append(f"{carrier} export: {basis}")
+                exports_priced = False
+                continue
+            key = f"{carrier}_export"
+            by_carrier[key] = -revenue
+            lines.append({"carrier": key, "annual_kwh": annual_kwh, "annual_cost": -revenue,
+                          "average_price": revenue / annual_kwh, "price_kind": price.kind,
+                          "basis": basis, "source": price.source})
         if settings.period_years is None:
             requirements.append("period_years is needed for a period operating cost")
-        complete = len(by_carrier) == len(supplied.delivered_by_carrier)
+        complete = exports_priced and all(c in by_carrier for c in supplied.delivered_by_carrier)
         annual = finite_sum(by_carrier.values()) if complete else None
         period = (annual * settings.period_years
                   if annual is not None and settings.period_years is not None else None)
