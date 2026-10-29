@@ -140,7 +140,7 @@ class AssessmentSettings:
         production: str = "conservative",
         **choices,
     ) -> AssessmentSettings:
-        """Use Boverket factors already supplied by Data for this renovation path.
+        """Use sourced carbon factors supplied by Data for this renovation path.
 
         Parameters
         ----------
@@ -149,8 +149,10 @@ class AssessmentSettings:
         period_years : float
             Common assessment period.
         catalogue : epsm_data.Catalogue, optional
-            An explicitly loaded catalogue, needed for whole-window resources
-            and their area conversion. Nothing is loaded automatically.
+            An explicitly loaded catalogue, needed for Boverket whole-window
+            resources and their area conversion, or source-ID-only references.
+            Attached external references also work without a catalogue.
+            Nothing is loaded automatically.
         production : {'conservative', 'typical'}, optional
             Which Boverket production column to select; conservative by default.
         **choices
@@ -165,6 +167,8 @@ class AssessmentSettings:
         -----
         Boverket's A5.1 is installation waste, not the whole A5 stage. It is
         retained as A5.1 evidence and is not silently used as complete A5.
+        External declarations retain their stated method and unit. Undeclared
+        modules remain missing; A5 does not silently supply its A5.1 part.
 
         Examples
         --------
