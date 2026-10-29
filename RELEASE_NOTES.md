@@ -10,6 +10,10 @@ move to format 2 and older reports are not read; format 1 settings still load.
 costs report a present value, and cost results give global cost per state and
 discounted payback per step. Both rates default to 0, which keeps today's totals.
 
+`FactorTrajectory` gives carrier carbon factors and energy prices one profile per
+year of the period, for decarbonising grids and price scenarios. B6, module D,
+operating cost, present values and paybacks follow it year by year.
+
 # LCA 0.3.0 — renovation cost and time-varying energy (29 October 2026)
 
 `assess_renovation_cost` prices renovation stages from the catalogue's cost

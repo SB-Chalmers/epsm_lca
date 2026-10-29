@@ -284,3 +284,39 @@ def test_global_cost_and_discounted_payback_are_checkable_by_hand():
     )
     assert never.discounted_payback_years(1) is None
     assert never.summary()["discounted_payback_years_by_step"] == {1: None}
+
+
+def test_cost_payback_follows_yearly_operating_costs():
+    from types import MappingProxyType
+
+    from epsm_lca import OperatingCost, RenovationCostResult, StageCost
+
+    stage = StageCost(
+        1,
+        "s1",
+        (),
+        "SEK",
+        (),
+        MappingProxyType({}),
+        MappingProxyType({}),
+        0.0,
+        250.0,
+        250.0,
+        (2026,),
+    )
+    base = OperatingCost(
+        0, "s0", "SEK", MappingProxyType({}), 200.0, 600.0, yearly=(100.0, 200.0, 300.0)
+    )
+    after = OperatingCost(1, "s1", "SEK", MappingProxyType({}), 0.0, 0.0)
+    result = RenovationCostResult(
+        (stage,), "SEK", operating=(base, after), period_years=3
+    )
+    # Savings of 100, 200 and 300: 250 is repaid three quarters into year 2.
+    assert result.simple_payback_years(1) == pytest.approx(1.75)
+    discounted = RenovationCostResult(
+        (stage,), "SEK", operating=(base, after), discount_rate=0.1, period_years=3
+    )
+    first = 100 / 1.1
+    assert discounted.discounted_payback_years(1) == pytest.approx(
+        1 + (250 - first) / (200 / 1.1**2)
+    )

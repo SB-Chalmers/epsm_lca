@@ -18,6 +18,7 @@ from epsm_data.domain import BuildingElement as Role
 from epsm_lca import (
     AnnualEnergy,
     AssessmentSettings,
+    FactorTrajectory,
     RenovationResult,
     assess_renovation,
 )
@@ -474,3 +475,18 @@ def test_settings_from_building_use_core_conditioned_floor_area(case):
         two, period_years=30, reference_area_m2=20, reference_area_basis="Atemp"
     )
     assert chosen.reference_area_m2 == 20
+
+
+def test_carbon_payback_follows_a_yearly_factor_trajectory(case):
+    _, _, _, _, two, settings, energy = case
+    # Step 1 saves 1,000 kWh a year: 100 kg in years 1-2, then 10 kg a year.
+    falling = FactorTrajectory.from_values([0.1, 0.1] + [0.01] * 28, "kgCO2e/kWh", "s")
+    rows = assess_renovation(
+        two, replace(settings, carrier_factors={"electricity": falling}), energy=energy
+    ).table()
+    assert rows[1]["carbon_payback_years"] == pytest.approx(4.0)  # 100+100+10+10
+    tiny = FactorTrajectory.from_values([1e-4] * 30, "kgCO2e/kWh", "s")
+    rows = assess_renovation(
+        two, replace(settings, carrier_factors={"electricity": tiny}), energy=energy
+    ).table()
+    assert rows[1]["carbon_payback_years"] is None  # not repaid within 30 years

@@ -12,6 +12,7 @@ from epsm_lca import (
     AssessmentSettings,
     CostSettings,
     FactorProfile,
+    FactorTrajectory,
     RenovationResult,
     assess_renovation,
     assess_renovation_cost,
@@ -256,3 +257,57 @@ def test_operating_present_value_discounts_and_escalates_each_year():
     for bad in (-1, math.nan, True):
         with pytest.raises(ValueError, match="rate above -1"):
             CostSettings({}, discount_rate=bad)
+
+
+def test_yearly_carbon_trajectory_values_each_year_of_the_period():
+    building = Building(preset="illustrative-reference")
+    energy = AnnualEnergy.for_building(
+        building, delivered_by_carrier={"electricity": 1000.0}, source="synthetic"
+    )
+    grid = FactorTrajectory.from_values([0.3, 0.2, 0.1], UNIT, "scenario")
+    settings = AssessmentSettings(2.5, carrier_factors={"electricity": grid})
+    report = assess_renovation(building, settings, energy={0: energy})
+    assert report.baseline.energy_kgco2e == pytest.approx(300 + 200 + 50)
+    (b6,) = [c for c in report.baseline.contributions if c["module"] == "B6"]
+    assert b6["yearly_gwp_kgco2e"] == pytest.approx([300, 200, 50])
+    assert (
+        RenovationResult.from_dict(json.loads(json.dumps(report.to_dict()))) == report
+    )
+    with pytest.raises(ValueError, match="must cover 4 years"):
+        AssessmentSettings(4, carrier_factors={"electricity": grid})
+    hourly = FactorTrajectory(
+        (FactorProfile.monthly(MONTHLY, UNIT, "s"),) * 3, "scenario"
+    )
+    annual_only = assess_renovation(
+        building,
+        AssessmentSettings(3, carrier_factors={"electricity": hourly}),
+        energy={0: energy},
+    )
+    assert any(
+        "year 1: hourly delivered energy" in r
+        for r in annual_only.baseline.requirements
+    )
+
+
+def test_price_trajectory_gives_yearly_operating_cost_and_present_value():
+    building = Building(preset="illustrative-reference")
+    energy = AnnualEnergy.for_building(
+        building, delivered_by_carrier={"electricity": 1000.0}, source="synthetic"
+    )
+    prices = {"electricity": FactorTrajectory.from_values([1, 2, 3], "SEK/kWh", "s")}
+    settings = CostSettings(
+        {}, carrier_prices=prices, period_years=3, discount_rate=0.1
+    )
+    operating = assess_renovation_cost(
+        building, settings, energy={0: energy}
+    ).operating[0]
+    assert operating.yearly == pytest.approx((1000, 2000, 3000))
+    assert operating.period == pytest.approx(6000)
+    assert operating.annual == pytest.approx(2000)
+    assert operating.present_value == pytest.approx(
+        1000 / 1.1 + 2000 / 1.1**2 + 3000 / 1.1**3
+    )
+    with pytest.raises(ValueError, match="set price_escalation to 0"):
+        CostSettings({}, carrier_prices=prices, period_years=3, price_escalation=0.02)
+    with pytest.raises(ValueError, match="must cover period_years"):
+        CostSettings({}, carrier_prices=prices, period_years=4)
