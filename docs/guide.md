@@ -158,6 +158,28 @@ After insulation, total impact is 24,500 and savings are 5,500. Those energy
 values are assumptions, not predicted energy savings. Substitute annual totals
 from your measurement or simulation, and a sourced factor, for research use.
 
+## Payback and per-area results
+
+Each `report.table()` row also reports:
+
+- `renovation_kgco2e`: material impact so far minus the baseline's.
+- `annual_energy_saving_kgco2e`: the baseline's energy impact minus this row's,
+  divided by the period.
+- `carbon_payback_years`: renovation carbon ÷ annual energy saving. It is `None`
+  when energy is excluded or unknown, or when the row does not save energy.
+- `total_kgco2e_per_m2` and `total_kgco2e_per_m2_year`, when the settings have a
+  reference area.
+
+In the teaching example, windows add 220 kg CO₂e and save 100 kg a year, so they
+pay back in 2.2 years; both steps add 500 kg and save 200 kg a year: 2.5 years.
+
+Set `reference_area_m2` with a `reference_area_basis` that says what the area is,
+for example `"Atemp"`. `AssessmentSettings.from_building` uses Core's conditioned
+floor area, labelled as such, unless you pass your own. One area is used for every
+row. `assess_renovation_cost(...).simple_payback_years(step)` gives the matching
+undiscounted cost payback: stage costs through that step ÷ the annual operating
+cost saving against the baseline.
+
 ## Missing inputs, saving and plotting
 
 Missing factors, unknown quantities and unresolved physical edits leave totals

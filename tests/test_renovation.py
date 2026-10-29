@@ -424,3 +424,53 @@ def test_missing_energy_plot_uses_a_gap_and_label(case):
     assert any(text.get_text() == "Missing" for text in ax.texts)
     assert any(text.get_text() == "Total incomplete" for text in ax.texts)
     plt.close(figure)
+
+
+def test_carbon_payback_and_per_area_results_are_checkable_by_hand(case):
+    _, _, _, _, two, settings, energy = case
+    area = replace(settings, reference_area_m2=25.0, reference_area_basis="Atemp")
+    rows = assess_renovation(two, area, energy=energy).table()
+    # Baseline uses 10,000 kWh x 0.1 kg/kWh; steps save 100 and 200 kg a year.
+    assert [r["renovation_kgco2e"] for r in rows] == pytest.approx([0, 220, 500])
+    assert rows[0]["carbon_payback_years"] is None
+    assert [r["carbon_payback_years"] for r in rows[1:]] == pytest.approx([2.2, 2.5])
+    assert rows[2]["total_kgco2e_per_m2"] == pytest.approx(24500 / 25)
+    assert rows[2]["total_kgco2e_per_m2_year"] == pytest.approx(24500 / 25 / 30)
+    report = assess_renovation(two, area, energy=energy)
+    assert report.summary()["final_carbon_payback_years"] == pytest.approx(2.5)
+    assert RenovationResult.from_dict(report.to_dict()) == report
+
+
+def test_indicators_stay_unknown_without_energy_area_or_savings(case):
+    _, _, _, _, two, settings, energy = case
+    materials = assess_renovation(two, replace(settings, include_energy=False))
+    row = materials.table()[-1]
+    assert row["carbon_payback_years"] is None
+    assert row["total_kgco2e_per_m2"] is None
+    worse = {
+        **energy,
+        2: AnnualEnergy.for_building(
+            two, delivered_by_carrier={"electricity": 12000}, source="Teaching"
+        ),
+    }
+    row = assess_renovation(two, settings, energy=worse).table()[-1]
+    assert row["annual_energy_saving_kgco2e"] == pytest.approx(-200)
+    assert row["carbon_payback_years"] is None
+
+
+def test_older_report_formats_are_rejected(case):
+    _, _, _, _, two, settings, energy = case
+    saved = assess_renovation(two, settings, energy=energy).to_dict()
+    with pytest.raises(ValueError, match="Unsupported renovation report"):
+        RenovationResult.from_dict({**saved, "format": "epsm-lca-renovation/1"})
+
+
+def test_settings_from_building_use_core_conditioned_floor_area(case):
+    _, _, _, _, two, _, _ = case
+    settings = AssessmentSettings.from_building(two, period_years=30)
+    assert settings.reference_area_m2 == pytest.approx(25)
+    assert settings.reference_area_basis == "conditioned floor area (epsm_core)"
+    chosen = AssessmentSettings.from_building(
+        two, period_years=30, reference_area_m2=20, reference_area_basis="Atemp"
+    )
+    assert chosen.reference_area_m2 == 20

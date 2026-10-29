@@ -46,6 +46,12 @@ renovation leaves the affected history incomplete. Nonmaterial authoring changes
 use the recorded reached state. Annual energy must match that state's identity.
 The report preserves those authoring links, rather than inferring physical work.
 
+Payback and per-area values are derived from the saved rows and are not stored
+separately. Renovation carbon is material impact so far minus the baseline's.
+Carbon payback divides it by the constant annual energy saving against the
+baseline; a row without a positive saving has no payback. Per-area totals divide
+by the single declared reference area.
+
 All known contributions must be finite. Overflows make the appropriate totals
 incomplete while preserving finite contributions. Saved-result checks allow only
 floating-point rounding (relative tolerance 1e-12, absolute 1e-9 kg CO₂e), not
