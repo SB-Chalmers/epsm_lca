@@ -232,3 +232,27 @@ def test_core_delivered_energy_feeds_b6_export_credit_and_revenue():
     assert operating.annual_by_carrier["electricity_export"] == pytest.approx(
         -0.5 * energy.exported_by_carrier["electricity"]
     )
+
+
+def test_operating_present_value_discounts_and_escalates_each_year():
+    building = Building(preset="illustrative-reference")
+    energy = AnnualEnergy.for_building(
+        building, delivered_by_carrier={"electricity": 1000.0}, source="synthetic"
+    )
+    price = {"electricity": FactorProfile.constant(1.0, "SEK/kWh", "synthetic")}
+    plain = CostSettings({}, carrier_prices=price, period_years=2.5)
+    operating = assess_renovation_cost(building, plain, energy={0: energy}).operating[0]
+    assert operating.present_value == pytest.approx(operating.period) == 2500
+    discounted = CostSettings(
+        {},
+        carrier_prices=price,
+        period_years=2.5,
+        discount_rate=0.1,
+        price_escalation=0.02,
+    )
+    pv = assess_renovation_cost(building, discounted, energy={0: energy}).operating[0]
+    g = 1.02 / 1.1
+    assert pv.present_value == pytest.approx(1000 * (g + g**2 + 0.5 * g**3))
+    for bad in (-1, math.nan, True):
+        with pytest.raises(ValueError, match="rate above -1"):
+            CostSettings({}, discount_rate=bad)

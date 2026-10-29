@@ -6,6 +6,10 @@ and, with a declared reference area, totals per m² and per m² and year.
 is supplied. Cost results report undiscounted payback per step. Renovation reports
 move to format 2 and older reports are not read; format 1 settings still load.
 
+`CostSettings` takes a real `discount_rate` and `price_escalation`. Operating
+costs report a present value, and cost results give global cost per state and
+discounted payback per step. Both rates default to 0, which keeps today's totals.
+
 # LCA 0.3.0 — renovation cost and time-varying energy (29 October 2026)
 
 `assess_renovation_cost` prices renovation stages from the catalogue's cost

@@ -20,6 +20,7 @@ from types import MappingProxyType
 from epsm_core import Building
 from epsm_data import MEASURE_TYPES, CostEstimate
 
+from ._timeline import discounted_payback, present_value
 from ._validation import finite_sum
 from .assessment import annual_factor_product
 from .energy import AnnualEnergy
@@ -38,6 +39,12 @@ class CostSettings:
     operating cost into an undiscounted period total. Varying prices need hourly
     delivered energy unless ``flat_profile_for_annual_energy`` is set.
 
+    ``discount_rate`` and ``price_escalation`` are real annual rates (0.03 is 3 %)
+    used for present values, global cost and discounted payback. Investments are
+    made at the start of year 1; operating cost in year ``t`` is multiplied by
+    ``(1 + price_escalation)**t / (1 + discount_rate)**t``. Both are 0 by default,
+    which keeps present values equal to the undiscounted period totals.
+
     Examples
     --------
     >>> settings = CostSettings({}, currency="SEK")
@@ -51,8 +58,20 @@ class CostSettings:
     period_years: float | None = None
     export_prices: Mapping[str, FactorProfile] = field(default_factory=dict)
     flat_profile_for_annual_energy: bool = False
+    discount_rate: float = 0.0
+    price_escalation: float = 0.0
 
     def __post_init__(self):
+        for name in ("discount_rate", "price_escalation"):
+            value = getattr(self, name)
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(value)
+                or value <= -1
+            ):
+                raise ValueError(f"{name} must be a finite rate above -1")
+            object.__setattr__(self, name, float(value))
         for name in ("carrier_prices", "export_prices"):
             prices = dict(getattr(self, name))
             for carrier, price in prices.items():
@@ -105,6 +124,7 @@ class OperatingCost:
     period: float | None
     lines: tuple[dict, ...] = ()
     requirements: tuple[str, ...] = ()
+    present_value: float | None = None
 
     @property
     def status(self):
@@ -118,6 +138,7 @@ class OperatingCost:
             "status": self.status,
             "annual": self.annual,
             "period": self.period,
+            "present_value": self.present_value,
             "annual_by_carrier": dict(self.annual_by_carrier),
             "lines": [dict(line) for line in self.lines],
             "requirements": list(self.requirements),
@@ -171,6 +192,8 @@ class RenovationCostResult:
     currency: str
     producer: Mapping[str, str] = field(default_factory=dict)
     operating: tuple[OperatingCost, ...] = ()
+    discount_rate: float = 0.0
+    price_escalation: float = 0.0
 
     @property
     def priced_subtotal(self):
@@ -205,13 +228,40 @@ class RenovationCostResult:
         >>> RenovationCostResult((), "SEK").simple_payback_years(1) is None
         True
         """
+        return payback_years(self.investment_so_far(step), self.annual_saving(step))
+
+    def annual_saving(self, step):
+        """Baseline annual operating cost minus this state's; None if unknown."""
         annual = {o.step: o.annual for o in self.operating}
-        saving = (
-            None
-            if annual.get(0) is None or annual.get(step) is None
-            else annual[0] - annual[step]
+        if annual.get(0) is None or annual.get(step) is None:
+            return None
+        return annual[0] - annual[step]
+
+    def global_cost(self, step):
+        """Stage costs through ``step`` plus this state's operating present value.
+
+        Step 0 is the baseline's operating present value alone. None when an
+        investment or the state's operating cost is incomplete.
+
+        Examples
+        --------
+        >>> RenovationCostResult((), "SEK").global_cost(0) is None
+        True
+        """
+        investment = 0.0 if step == 0 else self.investment_so_far(step)
+        running = {o.step: o.present_value for o in self.operating}.get(step)
+        if investment is None or running is None:
+            return None
+        return investment + running
+
+    def discounted_payback_years(self, step):
+        """Years until discounted operating savings repay stages 1..``step``."""
+        return discounted_payback(
+            self.investment_so_far(step),
+            self.annual_saving(step),
+            rate=self.discount_rate,
+            escalation=self.price_escalation,
         )
-        return payback_years(self.investment_so_far(step), saving)
 
     def summary(self):
         return {
@@ -224,6 +274,14 @@ class RenovationCostResult:
             "annual_operating_by_step": {o.step: o.annual for o in self.operating},
             "simple_payback_years_by_step": {
                 s.step: self.simple_payback_years(s.step) for s in self.stages
+            },
+            "discount_rate": self.discount_rate,
+            "price_escalation": self.price_escalation,
+            "global_cost_by_step": {
+                o.step: self.global_cost(o.step) for o in self.operating
+            },
+            "discounted_payback_years_by_step": {
+                s.step: self.discounted_payback_years(s.step) for s in self.stages
             },
         }
 
@@ -343,6 +401,14 @@ def operating_cost(building, settings, energy):
                 period,
                 tuple(lines),
                 tuple(dict.fromkeys(requirements)),
+                None
+                if period is None
+                else present_value(
+                    annual,
+                    settings.period_years,
+                    rate=settings.discount_rate,
+                    escalation=settings.price_escalation,
+                ),
             )
         )
     return tuple(results)
@@ -365,7 +431,7 @@ def assess_renovation_cost(
     energy : mapping of int to AnnualEnergy, optional
         Delivered energy per state, as for ``assess_renovation``: 0 is the
         baseline and n the state after stage n. Hourly values are weighted by
-        hourly prices; no discounting is applied.
+        hourly prices; present values use the settings' discount rate.
 
     Returns
     -------
@@ -484,4 +550,6 @@ def assess_renovation_cost(
         settings.currency,
         {"epsm_lca": __version__, "method": "catalogue-unit-rates/1"},
         operating_cost(building, settings, energy or {}),
+        settings.discount_rate,
+        settings.price_escalation,
     )

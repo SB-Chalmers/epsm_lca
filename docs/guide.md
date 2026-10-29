@@ -180,6 +180,21 @@ row. `assess_renovation_cost(...).simple_payback_years(step)` gives the matching
 undiscounted cost payback: stage costs through that step ÷ the annual operating
 cost saving against the baseline.
 
+## Discounted cost
+
+`CostSettings(discount_rate=..., price_escalation=...)` takes real annual rates
+(0.03 is 3 %). Investments are made at the start of year 1. Operating cost in year
+*t* is multiplied by (1 + escalation)ᵗ ÷ (1 + rate)ᵗ, and a partial last year
+counts for its share. Both rates are 0 by default, so present values equal the
+undiscounted period totals.
+
+- `operating[i].present_value`: the state's operating cost over the period.
+- `global_cost(step)`: stage costs through the step plus that state's operating
+  present value; step 0 is the baseline. The lowest global cost is the
+  cost-optimal state over the period (as in EN 15459, without residual value).
+- `discounted_payback_years(step)`: when discounted savings repay the stage
+  costs, interpolated within the year. `None` if they never do.
+
 ## Missing inputs, saving and plotting
 
 Missing factors, unknown quantities and unresolved physical edits leave totals
