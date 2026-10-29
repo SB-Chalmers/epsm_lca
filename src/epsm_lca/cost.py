@@ -23,6 +23,7 @@ from epsm_data import MEASURE_TYPES, CostEstimate
 from ._validation import finite_sum
 from .assessment import annual_factor_product
 from .energy import AnnualEnergy
+from .indicators import payback_years
 from .profiles import FactorProfile
 
 CATEGORIES = ("material", "labour", "subcontractor", "overhead")
@@ -188,6 +189,30 @@ class RenovationCostResult:
             "complete" if all(p.status == "complete" for p in parts) else "incomplete"
         )
 
+    def investment_so_far(self, step):
+        """Stage costs through ``step``; None when any of them is incomplete."""
+        totals = [s.total for s in self.stages if s.step <= step]
+        return None if None in totals else finite_sum(totals) or 0.0
+
+    def simple_payback_years(self, step):
+        """Undiscounted years until operating savings repay stages 1..``step``.
+
+        The saving is the baseline's annual operating cost minus this state's.
+        None when either cost is unknown or the state does not save money.
+
+        Examples
+        --------
+        >>> RenovationCostResult((), "SEK").simple_payback_years(1) is None
+        True
+        """
+        annual = {o.step: o.annual for o in self.operating}
+        saving = (
+            None
+            if annual.get(0) is None or annual.get(step) is None
+            else annual[0] - annual[step]
+        )
+        return payback_years(self.investment_so_far(step), saving)
+
     def summary(self):
         return {
             "currency": self.currency,
@@ -197,6 +222,9 @@ class RenovationCostResult:
             "step_count": len(self.stages),
             "incomplete_steps": [s.step for s in self.stages if s.status != "complete"],
             "annual_operating_by_step": {o.step: o.annual for o in self.operating},
+            "simple_payback_years_by_step": {
+                s.step: self.simple_payback_years(s.step) for s in self.stages
+            },
         }
 
     def to_dict(self):

@@ -194,3 +194,42 @@ def test_pv_and_dhw_carbon_use_area_records_and_direct_factors(library):
     assert assess_renovation_cost(dhw, CostSettings.from_catalogue(renovations)).stages[
         0
     ].total == (pytest.approx(90 * area))
+
+
+def test_simple_cost_payback_divides_investment_by_operating_saving():
+    from types import MappingProxyType
+
+    from epsm_lca import OperatingCost, RenovationCostResult, StageCost
+
+    def stage(step, total):
+        return StageCost(
+            step,
+            f"s{step}",
+            (),
+            "SEK",
+            (),
+            MappingProxyType({}),
+            MappingProxyType({}),
+            0.0,
+            total or 0.0,
+            total,
+            (2026,),
+        )
+
+    def running(step, annual):
+        return OperatingCost(
+            step, f"state{step}", "SEK", MappingProxyType({}), annual, None
+        )
+
+    result = RenovationCostResult(
+        (stage(1, 10000.0), stage(2, 20000.0)),
+        "SEK",
+        operating=(running(0, 9000.0), running(1, 7000.0), running(2, 4000.0)),
+    )
+    assert result.simple_payback_years(1) == pytest.approx(5.0)
+    assert result.simple_payback_years(2) == pytest.approx(6.0)
+    assert result.summary()["simple_payback_years_by_step"] == {1: 5.0, 2: 6.0}
+    unknown = RenovationCostResult(
+        (stage(1, None),), "SEK", operating=(running(0, 9000.0), running(1, 7000.0))
+    )
+    assert unknown.simple_payback_years(1) is None

@@ -1,3 +1,11 @@
+# LCA 0.4.0 (unreleased)
+
+Renovation reports give each step its renovation carbon, carbon payback in years
+and, with a declared reference area, totals per m² and per m² and year.
+`AssessmentSettings.from_building` uses Core's conditioned floor area unless one
+is supplied. Cost results report undiscounted payback per step. Saved settings and
+reports move to format 2; older files are not read.
+
 # LCA 0.3.0 — renovation cost and time-varying energy (29 October 2026)
 
 `assess_renovation_cost` prices renovation stages from the catalogue's cost

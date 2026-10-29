@@ -49,6 +49,9 @@ class AssessmentSettings:
         False by default; each use is labelled in the contributions.
     include_energy : bool, optional
         False counts materials only. Excluded energy remains None.
+    reference_area_m2 : float, optional
+        Positive floor area for per-m² results, with ``reference_area_basis``
+        naming what it is (for example Atemp or conditioned floor area).
 
     Notes
     -----
@@ -75,11 +78,20 @@ class AssessmentSettings:
     )
     include_energy: bool = True
     flat_profile_for_annual_energy: bool = False
+    reference_area_m2: float | None = None
+    reference_area_basis: str | None = None
 
     def __post_init__(self) -> None:
         period = number(self.period_years, "period_years")
         if period <= 0:
             raise ValueError("period_years must be finite and positive")
+        if (self.reference_area_m2 is None) != (self.reference_area_basis is None):
+            raise ValueError("Supply reference_area_m2 together with its basis")
+        if self.reference_area_m2 is not None:
+            if number(self.reference_area_m2, "reference_area_m2") <= 0:
+                raise ValueError("reference_area_m2 must be finite and positive")
+            text(self.reference_area_basis, "reference_area_basis")
+            object.__setattr__(self, "reference_area_m2", float(self.reference_area_m2))
         text(self.energy_boundary, "energy_boundary")
         if not isinstance(self.baseline, str) or self.baseline not in {
             "retained",
@@ -175,7 +187,9 @@ class AssessmentSettings:
             Loaded renovation catalogue whose product records are needed for
             installations such as ductwork and glazing units.
         **choices
-            Other settings, including explicit material-factor overrides.
+            Other settings, including explicit material-factor overrides. Unless
+            a reference area is given, Core's conditioned floor area is used
+            when the building has geometry.
 
         Returns
         -------
@@ -215,6 +229,9 @@ class AssessmentSettings:
         )
         for identity, overrides in choices.pop("material_factors", {}).items():
             factors.setdefault(identity, {}).update(overrides)
+        if "reference_area_m2" not in choices and building.geometry is not None:
+            choices["reference_area_m2"] = building.geometry.conditioned_floor_area_m2
+            choices["reference_area_basis"] = "conditioned floor area (epsm_core)"
         return cls(period_years=period_years, material_factors=factors, **choices)
 
     def summary(self) -> dict:
@@ -229,6 +246,8 @@ class AssessmentSettings:
                 len(factors) for factors in self.material_factors.values()
             ),
             "carrier_factor_count": len(self.carrier_factors),
+            "reference_area_m2": self.reference_area_m2,
+            "reference_area_basis": self.reference_area_basis,
         }
 
     def __repr__(self) -> str:
@@ -242,7 +261,7 @@ class AssessmentSettings:
 
     def to_dict(self) -> dict:
         return {
-            "format": "epsm-lca-settings/1",
+            "format": "epsm-lca-settings/2",
             "period_years": self.period_years,
             "energy_boundary": self.energy_boundary,
             "baseline": self.baseline,
@@ -256,27 +275,17 @@ class AssessmentSettings:
                 key: factor.to_dict() for key, factor in self.carrier_factors.items()
             },
             "flat_profile_for_annual_energy": self.flat_profile_for_annual_energy,
+            "reference_area_m2": self.reference_area_m2,
+            "reference_area_basis": self.reference_area_basis,
         }
 
     @classmethod
     def from_dict(cls, value: Mapping) -> AssessmentSettings:
-        """Load current or unversioned settings and validate their factor records."""
+        """Load current-format settings and validate their factor records."""
         if not isinstance(value, Mapping):
             raise ValueError("Assessment settings must be a mapping")
         data = dict(value)
-        if "format" not in data and any(
-            name not in data
-            for name in (
-                "period_years",
-                "energy_boundary",
-                "baseline",
-                "material_modules",
-            )
-        ):
-            raise ValueError(
-                "Old settings lack recorded assessment choices; supply them explicitly"
-            )
-        if data.pop("format", "epsm-lca-settings/1") != "epsm-lca-settings/1":
+        if data.pop("format", None) != "epsm-lca-settings/2":
             raise ValueError("Unsupported assessment settings format")
         if not isinstance(data.get("material_factors", {}), Mapping) or not isinstance(
             data.get("carrier_factors", {}), Mapping

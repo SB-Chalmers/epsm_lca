@@ -1,3 +1,10 @@
+# Moving from 0.3 to 0.4
+
+Saved settings now use `epsm-lca-settings/2` and renovation reports use
+`epsm-lca-renovation/2`. Older settings and reports are not read; rerun the
+assessment to produce them again. Settings gain the optional
+`reference_area_m2` and `reference_area_basis`.
+
 # Moving from 0.1 to 0.2
 
 Existing EPSM calls to `assess` keep their argument order and result attribute
