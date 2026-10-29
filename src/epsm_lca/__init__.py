@@ -6,8 +6,16 @@
 import logging
 
 from ._version import __version__
-from .assessment import assess
+from .assessment import assess, export_credit
+from .cost import (
+    CostSettings,
+    OperatingCost,
+    RenovationCostResult,
+    StageCost,
+    assess_renovation_cost,
+)
 from .energy import AnnualEnergy
+from .profiles import FactorProfile
 from .renovation import assess_renovation
 from .renovation_result import RenovationResult, StageResult
 from .result import LCAResult
@@ -18,12 +26,19 @@ if not any(isinstance(handler, logging.NullHandler) for handler in _logger.handl
     _logger.addHandler(logging.NullHandler())
 
 __all__ = [
+    "CostSettings",
+    "FactorProfile",
+    "OperatingCost",
+    "RenovationCostResult",
+    "StageCost",
+    "assess_renovation_cost",
     "AnnualEnergy",
     "AssessmentSettings",
     "LCAResult",
     "RenovationResult",
     "StageResult",
     "assess",
+    "export_credit",
     "assess_renovation",
     "__version__",
 ]
