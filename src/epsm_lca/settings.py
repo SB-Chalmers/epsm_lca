@@ -13,6 +13,7 @@ from epsm_core import Building
 from epsm_data import Catalogue, EnvironmentalFactor
 
 from ._validation import number, text
+from .profiles import FactorProfile
 
 MATERIAL_MODULES = ("A1A3", "A4", "A5", "C1", "C2", "C3", "C4")
 SUPPORTED_MODULES = (*MATERIAL_MODULES, "A5.1")
@@ -39,7 +40,13 @@ class AssessmentSettings:
         A1A3 production, A4 transport, A5 installation and C1--C4 removal,
         transport, treatment and disposal. All seven by default.
     material_factors, carrier_factors : mapping, optional
-        Sourced Data factors by material/module or energy carrier.
+        Sourced Data factors by material/module or energy carrier. A carrier
+        factor is a constant B6 ``EnvironmentalFactor`` or a ``FactorProfile``
+        in kgCO2e/kWh (constant, weekday/weekend, monthly or hourly).
+    flat_profile_for_annual_energy : bool, optional
+        When a carrier factor varies but only annual energy is supplied, use the
+        profile's time average (flat demand) instead of reporting a missing input.
+        False by default; each use is labelled in the contributions.
     include_energy : bool, optional
         False counts materials only. Excluded energy remains None.
 
@@ -63,8 +70,11 @@ class AssessmentSettings:
     material_factors: Mapping[str, Mapping[str, EnvironmentalFactor]] = field(
         default_factory=dict
     )
-    carrier_factors: Mapping[str, EnvironmentalFactor] = field(default_factory=dict)
+    carrier_factors: Mapping[str, EnvironmentalFactor | FactorProfile] = field(
+        default_factory=dict
+    )
     include_energy: bool = True
+    flat_profile_for_annual_energy: bool = False
 
     def __post_init__(self) -> None:
         period = number(self.period_years, "period_years")
@@ -116,12 +126,17 @@ class AssessmentSettings:
         carriers = dict(self.carrier_factors)
         for carrier, factor in carriers.items():
             text(carrier, "energy carrier")
-            if (
+            if isinstance(factor, FactorProfile):
+                if factor.unit != "kgCO2e/kWh":
+                    raise ValueError("Operational factor profiles are in kgCO2e/kWh")
+            elif (
                 not isinstance(factor, EnvironmentalFactor)
                 or factor.module != "B6"
                 or factor.unit != "kWh"
             ):
                 raise ValueError("Operational factors require module B6 and unit kWh")
+        if not isinstance(self.flat_profile_for_annual_energy, bool):
+            raise ValueError("flat_profile_for_annual_energy must be True or False")
         object.__setattr__(self, "period_years", period)
         object.__setattr__(self, "material_modules", modules)
         object.__setattr__(self, "material_factors", MappingProxyType(materials))
@@ -138,6 +153,7 @@ class AssessmentSettings:
         period_years: float,
         catalogue: Catalogue | None = None,
         production: str = "conservative",
+        renovations=None,
         **choices,
     ) -> AssessmentSettings:
         """Use sourced carbon factors supplied by Data for this renovation path.
@@ -155,6 +171,9 @@ class AssessmentSettings:
             Nothing is loaded automatically.
         production : {'conservative', 'typical'}, optional
             Which Boverket production column to select; conservative by default.
+        renovations : epsm_data.RenovationCatalogue, optional
+            Loaded renovation catalogue whose product records are needed for
+            installations such as ductwork and glazing units.
         **choices
             Other settings, including explicit material-factor overrides.
 
@@ -185,7 +204,9 @@ class AssessmentSettings:
         """
         from .boverket import building_factors
 
-        factors = building_factors(building, catalogue=catalogue, production=production)
+        factors = building_factors(
+            building, catalogue=catalogue, production=production, renovations=renovations
+        )
         choices.setdefault(
             "material_modules", ("A1A3", "A4", "A5.1", "C1", "C2", "C3", "C4")
         )
@@ -231,6 +252,7 @@ class AssessmentSettings:
             "carrier_factors": {
                 key: factor.to_dict() for key, factor in self.carrier_factors.items()
             },
+            "flat_profile_for_annual_energy": self.flat_profile_for_annual_energy,
         }
 
     @classmethod
@@ -271,7 +293,8 @@ class AssessmentSettings:
                 for key, factors in data.get("material_factors", {}).items()
             }
             data["carrier_factors"] = {
-                key: EnvironmentalFactor(**factor)
+                key: FactorProfile.from_dict(factor) if "kind" in factor
+                else EnvironmentalFactor(**factor)
                 for key, factor in data.get("carrier_factors", {}).items()
             }
             return cls(**data)

@@ -13,6 +13,7 @@ import logging
 
 from epsm_core import Building
 from epsm_data import CarbonReference, Catalogue, EnvironmentalFactor
+from epsm_data.contract import BOVERKET_REF, CARBON_REFERENCE, CARBON_REFERENCE_ID
 
 from ._validation import number
 
@@ -27,7 +28,7 @@ def _external_reference(material, refs, catalogue):
         if not isinstance(attached, CarbonReference):
             raise ValueError("material carbon_reference must be a CarbonReference")
         references.append(attached)
-    saved = refs.get("carbon_reference")
+    saved = refs.get(CARBON_REFERENCE)
     if saved is not None:
         if isinstance(saved, str):
             try:
@@ -38,7 +39,7 @@ def _external_reference(material, refs, catalogue):
             references.append(CarbonReference.from_dict(saved))
         except (TypeError, ValueError) as error:
             raise ValueError(f"Invalid saved carbon_reference: {error}") from error
-    identifier = refs.get("carbon_reference_id")
+    identifier = refs.get(CARBON_REFERENCE_ID)
     if identifier is not None and (
         not isinstance(identifier, str) or not identifier.strip()
     ):
@@ -55,7 +56,7 @@ def _external_reference(material, refs, catalogue):
     if identities and (
         getattr(material, "boverket_id", None) is not None
         or getattr(material, "embodied_carbon", None) is not None
-        or refs.get("boverket_id") is not None
+        or refs.get(BOVERKET_REF) is not None
     ):
         raise ValueError("Conflicting Boverket and external carbon references")
     if not references:
@@ -66,8 +67,13 @@ def _external_reference(material, refs, catalogue):
     return reference
 
 
-def building_factors(building, *, catalogue=None, production="conservative"):
-    """Collect known factors over the saved path, including removed products."""
+def building_factors(building, *, catalogue=None, production="conservative", renovations=None):
+    """Collect known factors over the saved path, including removed products.
+
+    ``renovations`` is a loaded epsm_data RenovationCatalogue; its Boverket
+    records cover installed products such as ductwork and glazing units.
+    Products without one carry their CarbonReference in the inventory row.
+    """
     if not isinstance(building, Building):
         raise ValueError("building must be an epsm_core Building")
     if catalogue is not None and not isinstance(catalogue, Catalogue):
@@ -78,7 +84,9 @@ def building_factors(building, *, catalogue=None, production="conservative"):
     for stage in building.stages:
         rows.extend(stage.before.quantities())
         rows.extend(stage.after.quantities())
-    resources = catalogue.boverket_resources if catalogue is not None else {}
+    resources = dict(catalogue.boverket_resources) if catalogue is not None else {}
+    if renovations is not None:
+        resources.update(renovations.boverket_resources)
     factors = {}
     external_records = {}
     for row in rows:
@@ -87,7 +95,7 @@ def building_factors(building, *, catalogue=None, production="conservative"):
         carbon = material.embodied_carbon if material is not None else None
         reference = _external_reference(material, refs, catalogue)
         resource_id = (
-            str(carbon.resource_id) if carbon is not None else refs.get("boverket_id")
+            str(carbon.resource_id) if carbon is not None else refs.get(BOVERKET_REF)
         )
         resource = resources.get(resource_id)
         if reference is not None:
@@ -106,12 +114,22 @@ def building_factors(building, *, catalogue=None, production="conservative"):
                 and item["PropertyUnitCode"] == "kg CO2 eq./kg"
                 for v in item["DataValueItems"]
             }
-            if not values:
+            per_area = {
+                v["DataModuleCode"]: v["Value"]
+                for item in resource["DataItems"]
+                if item["PropertyCode"] == "GWP-GHG AR4"
+                and item["PropertyUnitCode"] == "kg CO2 eq./m²"
+                for v in item["DataValueItems"]
+            }
+            if not values and not (per_area and row.area_m2 is not None):
                 raise ValueError(
                     f"Boverket {resource_id}: supported GWP-GHG AR4 kg factors are missing"
                 )
             unit, conversion = "kg", 1.0
-            if row.kind == "window":
+            if not values:
+                # Area-declared records, such as PV modules, apply to installed area.
+                values, unit = per_area, "m2"
+            elif row.kind == "window":
                 conversions = [
                     c["Value"]
                     for c in resource.get("Conversions", [])
@@ -136,7 +154,9 @@ def building_factors(building, *, catalogue=None, production="conservative"):
                     values[column] * conversion,
                     unit,
                     module,
-                    f"{source}; {column}; source value {values[column]} kgCO2e/kg; conversion {conversion:g}",
+                    f"{source}; {column}; source value {values[column]} "
+                    f"kgCO2e/{'m2' if unit == 'm2' and row.kind != 'window' else 'kg'}; "
+                    f"conversion {conversion:g}",
                 )
                 for module, column in columns.items()
                 if column in values

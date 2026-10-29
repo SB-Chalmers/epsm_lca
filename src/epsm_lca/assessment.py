@@ -16,6 +16,7 @@ from epsm_lca._logging import context_logger
 from epsm_lca._logging import operation as logged_operation
 
 from ._validation import finite_sum, number, text
+from .profiles import FactorProfile
 from .result import LCAResult
 from .settings import AssessmentSettings
 
@@ -133,6 +134,58 @@ def material_impact(
     )
 
 
+def factor_mean(factor):
+    return factor.mean if isinstance(factor, FactorProfile) else factor.value
+
+
+def annual_factor_product(factor, annual_kwh, hourly_kwh=None, *, flat=False):
+    """Annual delivered energy times a constant or time-varying per-kWh factor.
+
+    Returns ``(value, basis)``; value is None, with the reason as basis, when a
+    varying factor meets annual-only energy and the flat approximation is off.
+    """
+    if not isinstance(factor, FactorProfile):
+        return annual_kwh * factor.value, "constant"
+    if hourly_kwh is not None:
+        return factor.apply(hourly_kwh), f"hourly energy x {factor.kind} profile"
+    if not factor.varies:
+        return annual_kwh * factor.values[0], "constant"
+    if flat:
+        return annual_kwh * factor.mean, f"flat-demand approximation of a {factor.kind} profile"
+    return None, (f"hourly delivered energy is needed for its {factor.kind} factor "
+                  "(or allow the flat-demand approximation)")
+
+
+def export_credit(energy, settings):
+    """Module D: avoided grid impact of exported energy over the period, outside the total.
+
+    Uses the exported carrier's own B6 factor, weighted hourly when available.
+    Returns ``(kgco2e or None, lines, requirements)``; the value is a negative
+    credit and is never added to B6 or to combined totals.
+    """
+    lines, missing, values = [], [], []
+    exported = _get(energy, "exported_by_carrier", None) or {}
+    hourly = _get(energy, "exported_hourly_by_carrier", None) or {}
+    for carrier, annual_kwh in exported.items():
+        if not annual_kwh:
+            continue
+        factor = settings.carrier_factors.get(carrier)
+        if factor is None:
+            missing.append(f"{carrier} export: operational factor is missing")
+            continue
+        annual, basis = annual_factor_product(factor, annual_kwh, hourly.get(carrier),
+                                              flat=settings.flat_profile_for_annual_energy)
+        if annual is None:
+            missing.append(f"{carrier} export: {basis}")
+            continue
+        credit = -annual * settings.period_years
+        values.append(credit)
+        lines.append({"carrier": carrier, "module": "D", "quantity": annual_kwh * settings.period_years,
+                      "unit": "kWh", "gwp_kgco2e": credit, "basis": basis, "source": factor.source})
+    total = finite_sum(values) if not missing else None
+    return total, tuple(lines), tuple(missing)
+
+
 def energy_impact(energy, settings):
     """Assess one annual building state; never accumulate ancestors' operating years."""
     if not settings.include_energy:
@@ -153,6 +206,7 @@ def energy_impact(energy, settings):
         raise ValueError("Delivered energy must map carrier names to annual kWh")
     if not carriers:
         missing.append("Delivered energy by carrier is missing")
+    hourly = _get(energy, "hourly_by_carrier", None) or {}
     for carrier, value in carriers.items():
         text(carrier, "energy carrier")
         factor = settings.carrier_factors.get(carrier)
@@ -165,8 +219,14 @@ def energy_impact(energy, settings):
         if factor is None:
             missing.append(f"{carrier}: operational factor is missing")
             continue
+        annual, basis = annual_factor_product(
+            factor, annual_kwh, hourly.get(carrier),
+            flat=settings.flat_profile_for_annual_energy)
+        if annual is None:
+            missing.append(f"{carrier}: {basis}")
+            continue
         period_kwh = annual_kwh * settings.period_years
-        impact = period_kwh * factor.value
+        impact = annual * settings.period_years
         if not math.isfinite(period_kwh) or not math.isfinite(impact):
             missing.append(
                 f"{carrier}: calculated period energy and operational impact must be finite"
@@ -179,9 +239,10 @@ def energy_impact(energy, settings):
                 module="B6",
                 quantity=period_kwh,
                 unit="kWh",
-                factor_value=factor.value,
+                factor_value=annual / annual_kwh if annual_kwh else factor_mean(factor),
                 gwp_kgco2e=impact,
                 source=factor.source,
+                factor_basis=basis,
             )
         )
     total = finite_sum(values)
