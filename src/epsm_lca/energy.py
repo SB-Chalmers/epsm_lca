@@ -68,15 +68,23 @@ class AnnualEnergy:
             for k, v in self.delivered_by_carrier.items()
         }
         object.__setattr__(self, "delivered_by_carrier", MappingProxyType(amounts))
-        object.__setattr__(self, "hourly_by_carrier",
-                           _hourly(self.hourly_by_carrier, amounts, "delivered"))
+        object.__setattr__(
+            self,
+            "hourly_by_carrier",
+            _hourly(self.hourly_by_carrier, amounts, "delivered"),
+        )
         exported = {
-            text(k, "export carrier"): number(v, f"{k}: annual exported kWh", nonnegative=True)
+            text(k, "export carrier"): number(
+                v, f"{k}: annual exported kWh", nonnegative=True
+            )
             for k, v in dict(self.exported_by_carrier or {}).items()
         }
         object.__setattr__(self, "exported_by_carrier", MappingProxyType(exported))
-        object.__setattr__(self, "exported_hourly_by_carrier",
-                           _hourly(self.exported_hourly_by_carrier, exported, "exported"))
+        object.__setattr__(
+            self,
+            "exported_hourly_by_carrier",
+            _hourly(self.exported_hourly_by_carrier, exported, "exported"),
+        )
 
     @property
     def complete(self) -> bool:
@@ -99,12 +107,25 @@ class AnnualEnergy:
             raise ValueError("building must be an epsm_core Building")
         if delivered.state_id != building.snapshot().sha256:
             raise ValueError("Delivered energy describes a different building state")
-        return cls(delivered.state_id, delivered.annual_purchased, source, delivered.boundary,
-                   dict(delivered.purchased), delivered.annual_exported, dict(delivered.exported))
+        return cls(
+            delivered.state_id,
+            delivered.annual_purchased,
+            source,
+            delivered.boundary,
+            dict(delivered.purchased),
+            delivered.annual_exported,
+            dict(delivered.exported),
+        )
 
     @classmethod
-    def from_hourly(cls, building, *, hourly_by_carrier: Mapping[str, Sequence[float]],
-                    source: str, boundary: str = ENERGY_BOUNDARY) -> AnnualEnergy:
+    def from_hourly(
+        cls,
+        building,
+        *,
+        hourly_by_carrier: Mapping[str, Sequence[float]],
+        source: str,
+        boundary: str = ENERGY_BOUNDARY,
+    ) -> AnnualEnergy:
         """Capture a building state with 8760 delivered kWh per carrier.
 
         Examples
@@ -116,9 +137,13 @@ class AnnualEnergy:
         17520.0
         """
         series = {k: tuple(v) for k, v in hourly_by_carrier.items()}
-        return cls.for_building(building, delivered_by_carrier={
-            k: math.fsum(v) for k, v in series.items()}, source=source, boundary=boundary,
-            hourly_by_carrier=series)
+        return cls.for_building(
+            building,
+            delivered_by_carrier={k: math.fsum(v) for k, v in series.items()},
+            source=source,
+            boundary=boundary,
+            hourly_by_carrier=series,
+        )
 
     @classmethod
     def for_building(
@@ -163,8 +188,13 @@ class AnnualEnergy:
 
         if not isinstance(building, Building):
             raise ValueError("building must be an epsm_core Building")
-        return cls(building.snapshot().sha256, delivered_by_carrier, source, boundary,
-                   hourly_by_carrier)
+        return cls(
+            building.snapshot().sha256,
+            delivered_by_carrier,
+            source,
+            boundary,
+            hourly_by_carrier,
+        )
 
     def summary(self) -> dict:
         """Inspect source, covered uses, state and annual kWh without I/O."""
@@ -181,10 +211,13 @@ class AnnualEnergy:
         }
         if self.hourly_by_carrier or self.exported_by_carrier:
             result["format"] = "epsm-lca-energy/2"
-            result["hourly_by_carrier"] = {k: list(v) for k, v in self.hourly_by_carrier.items()}
+            result["hourly_by_carrier"] = {
+                k: list(v) for k, v in self.hourly_by_carrier.items()
+            }
             result["exported_by_carrier"] = dict(self.exported_by_carrier)
             result["exported_hourly_by_carrier"] = {
-                k: list(v) for k, v in self.exported_hourly_by_carrier.items()}
+                k: list(v) for k, v in self.exported_hourly_by_carrier.items()
+            }
         return result
 
     @classmethod
@@ -199,8 +232,10 @@ class AnnualEnergy:
             raise ValueError(f"Invalid annual energy: {error}") from error
 
     def __repr__(self) -> str:
-        return (f"AnnualEnergy(annual_kwh={sum(self.delivered_by_carrier.values()):g}, "
-                f"carriers={len(self.delivered_by_carrier)}, hourly={len(self.hourly_by_carrier)})")
+        return (
+            f"AnnualEnergy(annual_kwh={sum(self.delivered_by_carrier.values()):g}, "
+            f"carriers={len(self.delivered_by_carrier)}, hourly={len(self.hourly_by_carrier)})"
+        )
 
     __str__ = __repr__
 
@@ -214,10 +249,14 @@ def _hourly(values, annual, label):
     for carrier, series in dict(values or {}).items():
         if carrier not in annual:
             raise ValueError(f"{carrier}: hourly {label} values need an annual total")
-        series = tuple(number(v, f"{carrier}: hourly kWh", nonnegative=True) for v in series)
+        series = tuple(
+            number(v, f"{carrier}: hourly kWh", nonnegative=True) for v in series
+        )
         if len(series) != 8760:
             raise ValueError(f"{carrier}: hourly {label} energy needs 8760 values")
-        if not math.isclose(math.fsum(series), annual[carrier], rel_tol=1e-6, abs_tol=1e-6):
+        if not math.isclose(
+            math.fsum(series), annual[carrier], rel_tol=1e-6, abs_tol=1e-6
+        ):
             raise ValueError(f"{carrier}: hourly values do not sum to the annual total")
         result[carrier] = series
     return MappingProxyType(result)

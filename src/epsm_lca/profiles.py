@@ -68,9 +68,14 @@ class FactorProfile:
         object.__setattr__(self, "values", values)
         text(self.source, "profile source")
         if not isinstance(self.unit, str) or not self.unit.endswith("/kWh"):
-            raise ValueError("Profile units are per delivered kWh, for example 'SEK/kWh'")
-        if (isinstance(self.year, bool) or not isinstance(self.year, int)
-                or calendar.isleap(self.year)):
+            raise ValueError(
+                "Profile units are per delivered kWh, for example 'SEK/kWh'"
+            )
+        if (
+            isinstance(self.year, bool)
+            or not isinstance(self.year, int)
+            or calendar.isleap(self.year)
+        ):
             raise ValueError("Profiles use a non-leap calendar year of 8760 hours")
 
     @classmethod
@@ -122,11 +127,18 @@ class FactorProfile:
         """Sum of hourly delivered kWh times the factor in each hour."""
         if len(hourly_kwh) != HOURS:
             raise ValueError("Hourly delivered energy needs 8760 values")
-        return math.fsum(e * f for e, f in zip(hourly_kwh, self.hourly_values, strict=True))
+        return math.fsum(
+            e * f for e, f in zip(hourly_kwh, self.hourly_values, strict=True)
+        )
 
     def to_dict(self):
-        return {"kind": self.kind, "values": list(self.values), "unit": self.unit,
-                "source": self.source, "year": self.year}
+        return {
+            "kind": self.kind,
+            "values": list(self.values),
+            "unit": self.unit,
+            "source": self.source,
+            "year": self.year,
+        }
 
     @classmethod
     def from_dict(cls, data: Mapping):
@@ -135,5 +147,7 @@ class FactorProfile:
         return cls(**values)
 
     def __repr__(self):
-        return (f"FactorProfile(kind={self.kind!r}, unit={self.unit!r}, "
-                f"mean={self.mean:.4g}, year={self.year})")
+        return (
+            f"FactorProfile(kind={self.kind!r}, unit={self.unit!r}, "
+            f"mean={self.mean:.4g}, year={self.year})"
+        )

@@ -12,14 +12,14 @@ removed, their impacts, material impact so far, energy impact, total impact and
 savings compared with the baseline. Results are in **kg CO₂e**: climate impact
 expressed as an equivalent mass of carbon dioxide.
 
-**Version:** 0.2.0. Python 3.11 or newer. This is a climate assessment
+**Version:** 0.3.0. Python 3.11 or newer. This is a climate assessment
 of declared work and supplied energy, not a claim of complete building
 certification. Future replacements, final demolition and dated operating periods
 are not inferred.
 
 ## Install and start
 
-Install alongside Core 0.2.0+ and Data 0.4.0+. These dependencies currently live in
+Install alongside Core 0.9.0+ and Data 0.7.0+. These dependencies currently live in
 private EPSM repositories; install their tested wheels first if they are not
 available from your package index.
 

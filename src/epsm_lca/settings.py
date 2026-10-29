@@ -205,7 +205,10 @@ class AssessmentSettings:
         from .boverket import building_factors
 
         factors = building_factors(
-            building, catalogue=catalogue, production=production, renovations=renovations
+            building,
+            catalogue=catalogue,
+            production=production,
+            renovations=renovations,
         )
         choices.setdefault(
             "material_modules", ("A1A3", "A4", "A5.1", "C1", "C2", "C3", "C4")
@@ -293,7 +296,8 @@ class AssessmentSettings:
                 for key, factors in data.get("material_factors", {}).items()
             }
             data["carrier_factors"] = {
-                key: FactorProfile.from_dict(factor) if "kind" in factor
+                key: FactorProfile.from_dict(factor)
+                if "kind" in factor
                 else EnvironmentalFactor(**factor)
                 for key, factor in data.get("carrier_factors", {}).items()
             }
