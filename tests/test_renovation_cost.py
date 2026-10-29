@@ -320,3 +320,70 @@ def test_cost_payback_follows_yearly_operating_costs():
     assert discounted.discounted_payback_years(1) == pytest.approx(
         1 + (250 - first) / (200 / 1.1**2)
     )
+
+
+def test_catalogue_service_lives_drive_replacement_counts(library):
+    from dataclasses import fields
+
+    from epsm_core.building import RenovationStage
+
+    if not any(f.name == "installed_by" for f in fields(RenovationStage)):
+        pytest.skip("this epsm_core does not record installing measures")
+    renovations = RenovationCatalogue.load(library)
+    child = apply_candidates(
+        building(library),
+        renovations.get("insulate_wall.stone_wool_200"),
+        renovations.get("upgrade_ventilation.ftx_080"),
+    )
+    settings = AssessmentSettings.from_building(
+        child,
+        period_years=60,
+        catalogue=library,
+        renovations=renovations,
+        material_modules=("A1A3",),
+        include_energy=False,
+        include_replacements=True,
+    )
+    assert settings.service_lives["upgrade_ventilation.ftx_080"].years == 25
+    assert settings.service_lives["insulate_wall.stone_wool_200"].years == 50
+    stage = assess_renovation(child, settings).stages[0]
+    assert stage.complete
+    by = dict(child.stages[0].installed_by)
+    lives = {"upgrade_ventilation.ftx_080": 2, "insulate_wall.stone_wool_200": 1}
+    expected = sum(
+        c["gwp_kgco2e"] * lives.get(by[c["occurrence_id"]], 0)
+        for c in stage.contributions
+        if c["module"] == "A1A3"
+    )
+    assert stage.replacement_kgco2e == pytest.approx(expected)
+    assert expected > 0
+
+
+def test_measures_are_bought_again_when_their_service_life_ends(library):
+    renovations = RenovationCatalogue.load(library, costs=overlay())
+    child = apply_candidates(
+        building(library), renovations.get("insulate_wall.stone_wool_200")
+    )
+    settings = CostSettings.from_catalogue(
+        renovations, period_years=60, discount_rate=0.03, include_replacements=True
+    )
+    result = assess_renovation_cost(child, settings)
+    baseline, after = result.replacements
+    assert baseline.total == 0 and baseline.lines == ()
+    stage = result.stages[0]
+    (line,) = after.lines
+    assert (line["year"], line["cost"]) == (50.0, pytest.approx(stage.total))
+    assert after.present_value == pytest.approx(stage.total / 1.03**50)
+    assert result.summary()["replacement_cost_by_step"] == {0: 0.0, 1: after.total}
+    short = CostSettings.from_catalogue(
+        renovations, period_years=40, include_replacements=True
+    )
+    assert assess_renovation_cost(child, short).replacements[1].lines == ()
+    unknown = CostSettings(
+        settings.estimates, period_years=60, include_replacements=True
+    )
+    missing = assess_renovation_cost(child, unknown).replacements[1]
+    assert missing.total is None
+    assert (
+        "insulate_wall.stone_wool_200: service life is missing" in missing.requirements
+    )

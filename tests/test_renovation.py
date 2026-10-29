@@ -490,3 +490,66 @@ def test_carbon_payback_follows_a_yearly_factor_trajectory(case):
         two, replace(settings, carrier_factors={"electricity": tiny}), energy=energy
     ).table()
     assert rows[1]["carbon_payback_years"] is None  # not repaid within 30 years
+
+
+def _core_records_installing_measures():
+    from dataclasses import fields
+
+    from epsm_core.building import RenovationStage
+
+    return any(f.name == "installed_by" for f in fields(RenovationStage))
+
+
+needs_installing_measures = pytest.mark.skipif(
+    not _core_records_installing_measures(),
+    reason="this epsm_core does not record installing measures",
+)
+
+
+@needs_installing_measures
+def test_replacements_repeat_installation_and_removal_within_the_period(case):
+    from epsm_lca import ServiceLife
+
+    _, _, _, _, two, settings, energy = case
+    lives = {
+        "windows": ServiceLife(20, "Teaching assumption"),
+        "insulation": ServiceLife(50, "Teaching assumption"),
+    }
+    counted = replace(settings, include_replacements=True, service_lives=lives)
+    report = assess_renovation(two, counted, energy=energy)
+    assert report.complete
+    # 10 m2 of windows are replaced once in 30 years: (18+1+1 + 4x0.5) x 10.
+    assert [s.replacement_kgco2e for s in report.stages] == pytest.approx([220, 220])
+    assert report.baseline.replacement_kgco2e == 0
+    assert [s.total_kgco2e for s in report.stages] == pytest.approx([27440, 24720])
+    b4 = [c for c in report.stages[0].contributions if c["module"] == "B4"]
+    assert {c["year"] for c in b4} == {20.0}
+    assert {c["replaced_module"] for c in b4} == {
+        "A1A3",
+        "A4",
+        "A5",
+        "C1",
+        "C2",
+        "C3",
+        "C4",
+    }
+    assert RenovationResult.from_dict(report.to_dict()) == report
+    off = assess_renovation(two, settings, energy=energy)
+    assert off.stages[0].replacement_kgco2e is None
+    assert off.stages[0].total_kgco2e == pytest.approx(27220)
+
+
+@needs_installing_measures
+def test_replacements_need_service_lives_and_skip_removed_work(case):
+    from epsm_lca import ServiceLife
+
+    baseline, windows, insulation, _, _, settings, _ = case
+    unknown = replace(settings, include_replacements=True, include_energy=False)
+    report = assess_renovation(baseline.renovate(windows), unknown)
+    assert not report.complete
+    assert "windows: service life is missing" in report.stages[0].requirements
+    twice = baseline.renovate(windows).renovate(windows)
+    lives = {"windows": ServiceLife(20, "Teaching assumption")}
+    report = assess_renovation(twice, replace(unknown, service_lives=lives))
+    # Only the second set of windows survives; the first is not replaced again.
+    assert [s.replacement_kgco2e for s in report.stages] == pytest.approx([220, 220])

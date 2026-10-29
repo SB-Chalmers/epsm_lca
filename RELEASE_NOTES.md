@@ -14,6 +14,12 @@ discounted payback per step. Both rates default to 0, which keeps today's totals
 year of the period, for decarbonising grids and price scenarios. B6, module D,
 operating cost, present values and paybacks follow it year by year.
 
+With `include_replacements=True`, renovation work whose `ServiceLife` ends within
+the period is replaced `ceil(period / life) − 1` times: module B4 repeats its
+installation and removal modules, and the cost result buys the measure again,
+discounted. Service lives come from the renovation catalogue or are supplied per
+measure. Requires Core with installing measures recorded per occurrence.
+
 # LCA 0.3.0 — renovation cost and time-varying energy (29 October 2026)
 
 `assess_renovation_cost` prices renovation stages from the catalogue's cost

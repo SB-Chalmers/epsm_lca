@@ -26,6 +26,7 @@ from .assessment import annual_factor_product, period_factor_product
 from .energy import AnnualEnergy
 from .indicators import payback_years
 from .profiles import FactorProfile, FactorTrajectory
+from .replacement import ServiceLife, life_for, surviving_installations
 
 CATEGORIES = ("material", "labour", "subcontractor", "overhead")
 
@@ -42,6 +43,10 @@ class CostSettings:
     A price can also be a ``FactorTrajectory`` with one profile per year of
     ``period_years``; ``price_escalation`` must then be 0, since the trajectory
     states each year's price.
+
+    With ``include_replacements``, each priced measure is bought again whenever
+    its ``service_lives`` entry (by candidate or measure ID) ends within
+    ``period_years``, at the same stage price, discounted to its year.
 
     ``discount_rate`` and ``price_escalation`` are real annual rates (0.03 is 3 %)
     used for present values, global cost and discounted payback. Investments are
@@ -68,8 +73,17 @@ class CostSettings:
     flat_profile_for_annual_energy: bool = False
     discount_rate: float = 0.0
     price_escalation: float = 0.0
+    include_replacements: bool = False
+    service_lives: Mapping[str, ServiceLife] = field(default_factory=dict)
 
     def __post_init__(self):
+        if not isinstance(self.include_replacements, bool):
+            raise ValueError("include_replacements must be True or False")
+        if any(not isinstance(v, ServiceLife) for v in self.service_lives.values()):
+            raise ValueError("service_lives must map IDs to ServiceLife records")
+        object.__setattr__(
+            self, "service_lives", MappingProxyType(dict(self.service_lives))
+        )
         for name in ("discount_rate", "price_escalation"):
             value = getattr(self, name)
             if (
@@ -122,7 +136,16 @@ class CostSettings:
 
     @classmethod
     def from_catalogue(cls, renovations, *, currency="SEK", **choices):
-        """Collect the estimates already attached to a loaded RenovationCatalogue."""
+        """Collect the estimates and service lives of a loaded RenovationCatalogue."""
+        lives = {
+            c.candidate_id: ServiceLife(
+                c.service_life_years,
+                "epsm_data renovation catalogue service_life_years",
+            )
+            for c in renovations
+            if c.service_life_years is not None
+        }
+        choices["service_lives"] = {**lives, **choices.get("service_lives", {})}
         return cls(
             {c.candidate_id: c.cost for c in renovations if c.cost is not None},
             currency=currency,
@@ -205,6 +228,33 @@ class StageCost:
 
 
 @dataclass(frozen=True)
+class ReplacementCost:
+    """Measures of one state bought again within the period, by year."""
+
+    step: int
+    currency: str
+    lines: tuple[dict, ...]
+    total: float | None
+    present_value: float | None
+    requirements: tuple[str, ...] = ()
+
+    @property
+    def status(self):
+        return "incomplete" if self.requirements else "complete"
+
+    def to_dict(self):
+        return {
+            "step": self.step,
+            "currency": self.currency,
+            "status": self.status,
+            "total": self.total,
+            "present_value": self.present_value,
+            "lines": [dict(line) for line in self.lines],
+            "requirements": list(self.requirements),
+        }
+
+
+@dataclass(frozen=True)
 class RenovationCostResult:
     """Costs of every recorded renovation stage of one building."""
 
@@ -215,6 +265,7 @@ class RenovationCostResult:
     discount_rate: float = 0.0
     price_escalation: float = 0.0
     period_years: float | None = None
+    replacements: tuple[ReplacementCost, ...] = ()
 
     @property
     def priced_subtotal(self):
@@ -228,7 +279,7 @@ class RenovationCostResult:
 
     @property
     def status(self):
-        parts = (*self.stages, *self.operating)
+        parts = (*self.stages, *self.operating, *self.replacements)
         return (
             "complete" if all(p.status == "complete" for p in parts) else "incomplete"
         )
@@ -286,8 +337,9 @@ class RenovationCostResult:
     def global_cost(self, step):
         """Stage costs through ``step`` plus this state's operating present value.
 
-        Step 0 is the baseline's operating present value alone. None when an
-        investment or the state's operating cost is incomplete.
+        Step 0 is the baseline's operating present value alone. Counted
+        replacements add their present value. None when an investment, the
+        state's operating cost or its replacements are incomplete.
 
         Examples
         --------
@@ -298,6 +350,11 @@ class RenovationCostResult:
         running = {o.step: o.present_value for o in self.operating}.get(step)
         if investment is None or running is None:
             return None
+        if self.replacements:
+            replaced = {r.step: r.present_value for r in self.replacements}.get(step)
+            if replaced is None:
+                return None
+            running += replaced
         return investment + running
 
     def discounted_payback_years(self, step):
@@ -336,6 +393,7 @@ class RenovationCostResult:
             "discounted_payback_years_by_step": {
                 s.step: self.discounted_payback_years(s.step) for s in self.stages
             },
+            "replacement_cost_by_step": {r.step: r.total for r in self.replacements},
         }
 
     def to_dict(self):
@@ -344,7 +402,64 @@ class RenovationCostResult:
             "producer": dict(self.producer),
             "stages": [s.to_dict() for s in self.stages],
             "operating": [o.to_dict() for o in self.operating],
+            "replacements": [r.to_dict() for r in self.replacements],
         }
+
+
+def replacement_cost(building, settings, stage_costs):
+    """Replacement purchases of every state's surviving priced measures."""
+    stages = tuple(building.stages)
+    results = []
+    for step in range(len(stages) + 1):
+        lines, missing = [], []
+        if settings.period_years is None:
+            missing.append("period_years is needed to count replacements")
+        surviving = surviving_installations(stages[:step])
+        for stage, cost in zip(stages[:step], stage_costs):
+            recorded = dict(getattr(stage, "installed_by", ()) or ())
+            candidates = {q.measure_id: q.candidate_id for q in stage.quantities}
+            for measure_id, amount in cost.by_measure.items():
+                own = {k for k, m in recorded.items() if m == measure_id}
+                if own and not own & surviving.keys():
+                    continue  # a later stage removed this work
+                life = life_for(
+                    settings.service_lives, measure_id, candidates.get(measure_id)
+                )
+                if life is None:
+                    missing.append(f"{measure_id}: service life is missing")
+                    continue
+                if cost.total is None:
+                    missing.append(
+                        f"{measure_id}: stage {cost.step} cost is incomplete; "
+                        "its replacement cost is unknown"
+                    )
+                for year in life.replacement_years(settings.period_years or 0):
+                    lines.append(
+                        {
+                            "measure_id": measure_id,
+                            "stage": cost.step,
+                            "year": year,
+                            "cost": amount,
+                            "present_value": amount
+                            / (1 + settings.discount_rate) ** year,
+                            "service_life_years": life.years,
+                            "service_life_source": life.source,
+                        }
+                    )
+        missing = tuple(dict.fromkeys(missing))
+        results.append(
+            ReplacementCost(
+                step,
+                settings.currency,
+                tuple(lines),
+                None if missing else finite_sum(x["cost"] for x in lines) or 0.0,
+                None
+                if missing
+                else finite_sum(x["present_value"] for x in lines) or 0.0,
+                missing,
+            )
+        )
+    return tuple(results)
 
 
 def _priced(price, annual_kwh, hourly_kwh, settings):
@@ -641,4 +756,7 @@ def assess_renovation_cost(
         settings.discount_rate,
         settings.price_escalation,
         settings.period_years,
+        replacement_cost(building, settings, stages)
+        if settings.include_replacements
+        else (),
     )

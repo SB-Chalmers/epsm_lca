@@ -39,8 +39,18 @@ unknown physical window mass stays unknown.
 
 The bundled source provides GWP-GHG AR4 and A5.1 installation-waste data. A5.1 is
 kept separate from complete A5; selecting both is rejected to avoid overlapping
-coverage. Biogenic timing, automatic future replacement, final demolition and
-other environmental measures need separate future methods. Missing removal or
+coverage. Biogenic timing, final demolition and other environmental measures
+need separate future methods.
+
+With `include_replacements=True`, renovation work still present in a state is
+replaced `ceil(period / service life) − 1` times, at years L, 2L and so on (EN
+15978). Each replacement counts the selected installation (A) and removal (C)
+modules of the same occurrences again, reported as module B4 and added to the
+state's total. Service lives are sourced per catalogue candidate or measure; a
+missing life leaves the total incomplete. Work removed by a later step is not
+replaced, and existing baseline components are not replaced because their
+remaining lives are unknown. Carbon payback compares the initial renovation
+carbon with energy savings; it does not include B4. Missing removal or
 energy factors are not invented.
 
 An edit that changes material identities or quantities outside a recorded

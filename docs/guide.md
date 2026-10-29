@@ -195,6 +195,32 @@ undiscounted period totals.
 - `discounted_payback_years(step)`: when discounted savings repay the stage
   costs, interpolated within the year. `None` if they never do.
 
+## Replacements within the period (B4)
+
+Set `include_replacements=True` and give each renovation measure a sourced
+`ServiceLife`, keyed by catalogue candidate ID or measure ID.
+`AssessmentSettings.from_building(..., renovations=catalogue)` supplies the
+catalogue's `service_life_years` for the measures on the building, and
+`CostSettings.from_catalogue` does the same for costs.
+
+```python
+from epsm_lca import ServiceLife
+
+settings = AssessmentSettings(
+    30,
+    include_replacements=True,
+    service_lives={"windows": ServiceLife(20, "Your source")},
+)
+```
+
+Work whose life ends within the period is replaced `ceil(period / life) − 1`
+times. Each step reports `replacement_kgco2e`, included in its total; B4
+contributions carry the replacement `year` and the `replaced_module`. On the cost
+side, `replacements` lists each measure bought again at its stage price,
+discounted to its year, and `global_cost` includes it. Existing baseline
+components are not replaced. Replacements need an `epsm_core` that records which
+measure installed each material.
+
 ## Missing inputs, saving and plotting
 
 Missing factors, unknown quantities and unresolved physical edits leave totals

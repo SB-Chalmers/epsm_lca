@@ -14,6 +14,7 @@ from epsm_data import Catalogue, EnvironmentalFactor
 
 from ._validation import number, text
 from .profiles import FactorProfile, FactorTrajectory, factor_from_dict
+from .replacement import ServiceLife
 
 MATERIAL_MODULES = ("A1A3", "A4", "A5", "C1", "C2", "C3", "C4")
 SUPPORTED_MODULES = (*MATERIAL_MODULES, "A5.1")
@@ -50,6 +51,11 @@ class AssessmentSettings:
         False by default; each use is labelled in the contributions.
     include_energy : bool, optional
         False counts materials only. Excluded energy remains None.
+    include_replacements : bool, optional
+        Count B4 replacement of renovation work whose service life ends within
+        the period. False by default.
+    service_lives : mapping of str to ServiceLife, optional
+        Sourced service lives by catalogue candidate ID or measure ID.
     reference_area_m2 : float, optional
         Positive floor area for per-m² results, with ``reference_area_basis``
         naming what it is (for example Atemp or conditioned floor area).
@@ -81,8 +87,19 @@ class AssessmentSettings:
     flat_profile_for_annual_energy: bool = False
     reference_area_m2: float | None = None
     reference_area_basis: str | None = None
+    include_replacements: bool = False
+    service_lives: Mapping[str, ServiceLife] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        if not isinstance(self.include_replacements, bool):
+            raise ValueError("include_replacements must be True or False")
+        if not isinstance(self.service_lives, Mapping) or any(
+            not isinstance(life, ServiceLife) for life in self.service_lives.values()
+        ):
+            raise ValueError("service_lives must map IDs to ServiceLife records")
+        object.__setattr__(
+            self, "service_lives", MappingProxyType(dict(self.service_lives))
+        )
         period = number(self.period_years, "period_years")
         if period <= 0:
             raise ValueError("period_years must be finite and positive")
@@ -190,7 +207,8 @@ class AssessmentSettings:
             Which Boverket production column to select; conservative by default.
         renovations : epsm_data.RenovationCatalogue, optional
             Loaded renovation catalogue whose product records are needed for
-            installations such as ductwork and glazing units.
+            installations such as ductwork and glazing units. Its candidates'
+            service lives are also supplied for the measures on the building.
         **choices
             Other settings, including explicit material-factor overrides. Unless
             a reference area is given, Core's conditioned floor area is used
@@ -234,6 +252,17 @@ class AssessmentSettings:
         )
         for identity, overrides in choices.pop("material_factors", {}).items():
             factors.setdefault(identity, {}).update(overrides)
+        if renovations is not None:
+            lives = {}
+            for stage in building.stages:
+                for quantities in stage.quantities:
+                    years = renovations.get(quantities.candidate_id).service_life_years
+                    if years is not None:
+                        lives[quantities.candidate_id] = ServiceLife(
+                            years,
+                            "epsm_data renovation catalogue service_life_years",
+                        )
+            choices["service_lives"] = {**lives, **choices.get("service_lives", {})}
         if "reference_area_m2" not in choices and building.geometry is not None:
             choices["reference_area_m2"] = building.geometry.conditioned_floor_area_m2
             choices["reference_area_basis"] = "conditioned floor area (epsm_core)"
@@ -253,6 +282,8 @@ class AssessmentSettings:
             "carrier_factor_count": len(self.carrier_factors),
             "reference_area_m2": self.reference_area_m2,
             "reference_area_basis": self.reference_area_basis,
+            "include_replacements": self.include_replacements,
+            "service_life_count": len(self.service_lives),
         }
 
     def __repr__(self) -> str:
@@ -282,6 +313,10 @@ class AssessmentSettings:
             "flat_profile_for_annual_energy": self.flat_profile_for_annual_energy,
             "reference_area_m2": self.reference_area_m2,
             "reference_area_basis": self.reference_area_basis,
+            "include_replacements": self.include_replacements,
+            "service_lives": {
+                key: life.to_dict() for key, life in self.service_lives.items()
+            },
         }
 
     @classmethod
@@ -310,10 +345,16 @@ class AssessmentSettings:
         saved_format = data.pop("format", "epsm-lca-settings/1")
         if saved_format not in {"epsm-lca-settings/1", "epsm-lca-settings/2"}:
             raise ValueError("Unsupported assessment settings format")
-        if saved_format == "epsm-lca-settings/1" and (
-            "reference_area_m2" in data or "reference_area_basis" in data
+        if saved_format == "epsm-lca-settings/1" and any(
+            name in data
+            for name in (
+                "reference_area_m2",
+                "reference_area_basis",
+                "include_replacements",
+                "service_lives",
+            )
         ):
-            raise ValueError("Format 1 settings have no reference area")
+            raise ValueError("Format 1 settings have no reference area or replacements")
         if not isinstance(data.get("material_factors", {}), Mapping) or not isinstance(
             data.get("carrier_factors", {}), Mapping
         ):
@@ -330,6 +371,12 @@ class AssessmentSettings:
                     for module, factor in factors.items()
                 }
                 for key, factors in data.get("material_factors", {}).items()
+            }
+            if not isinstance(data.get("service_lives", {}), Mapping):
+                raise ValueError("Saved service lives must be a mapping")
+            data["service_lives"] = {
+                key: ServiceLife(**life)
+                for key, life in data.get("service_lives", {}).items()
             }
             data["carrier_factors"] = {
                 key: factor_from_dict(factor)
