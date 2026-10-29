@@ -39,6 +39,30 @@ def present_value(annual, period, *, rate=0.0, escalation=0.0):
     return math.fsum(annual * share * growth**year for year, share in years(period))
 
 
+def repay(investment, yearly_savings):
+    """Years until a sequence of yearly savings repays an investment; None if never.
+
+    The year that completes repayment is interpolated linearly within that year.
+
+    Examples
+    --------
+    >>> repay(150.0, [100.0, 100.0])
+    1.5
+    >>> repay(500.0, [100.0, 100.0]) is None
+    True
+    """
+    if investment is None:
+        return None
+    if investment <= 0:
+        return 0.0
+    repaid = 0.0
+    for year, value in enumerate(yearly_savings, 1):
+        if value > 0 and repaid + value >= investment:
+            return year - 1 + (investment - repaid) / value
+        repaid += value
+    return None
+
+
 def discounted_payback(investment, annual_saving, *, rate=0.0, escalation=0.0):
     """Years until discounted savings repay an investment; None if never.
 
@@ -53,15 +77,7 @@ def discounted_payback(investment, annual_saving, *, rate=0.0, escalation=0.0):
     >>> discounted_payback(1000.0, 100.0, rate=0.1) is None
     True
     """
-    if investment is None or annual_saving is None or annual_saving <= 0:
+    if annual_saving is None or annual_saving <= 0:
         return None
-    if investment <= 0:
-        return 0.0
     growth = (1 + escalation) / (1 + rate)
-    repaid = 0.0
-    for year in range(1, 1001):
-        value = annual_saving * growth**year
-        if repaid + value >= investment:
-            return year - 1 + (investment - repaid) / value
-        repaid += value
-    return None
+    return repay(investment, (annual_saving * growth**t for t in range(1, 1001)))

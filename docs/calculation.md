@@ -17,6 +17,8 @@ cumulative totals unknown, while each later step's known quantities remain usefu
 
 Operational impact uses only the reached state's annual delivered energy:
 annual kWh per carrier × common period in years × sourced kg CO₂e/kWh factor.
+With a yearly factor trajectory it is the sum over the period's years of annual
+kWh × that year's factor, with a partial last year counted for its share.
 The package does not infer which energy uses were omitted or convert thermal
 demand into purchased energy. A source can be a measurement, a simulation or an
 explicit assumption; storing it does not verify its accuracy.

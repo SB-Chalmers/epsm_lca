@@ -15,7 +15,7 @@ from .cost import (
     assess_renovation_cost,
 )
 from .energy import AnnualEnergy
-from .profiles import FactorProfile
+from .profiles import FactorProfile, FactorTrajectory
 from .renovation import assess_renovation
 from .renovation_result import RenovationResult, StageResult
 from .result import LCAResult
@@ -28,6 +28,7 @@ if not any(isinstance(handler, logging.NullHandler) for handler in _logger.handl
 __all__ = [
     "CostSettings",
     "FactorProfile",
+    "FactorTrajectory",
     "OperatingCost",
     "RenovationCostResult",
     "StageCost",

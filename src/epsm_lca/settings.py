@@ -13,7 +13,7 @@ from epsm_core import Building
 from epsm_data import Catalogue, EnvironmentalFactor
 
 from ._validation import number, text
-from .profiles import FactorProfile
+from .profiles import FactorProfile, FactorTrajectory, factor_from_dict
 
 MATERIAL_MODULES = ("A1A3", "A4", "A5", "C1", "C2", "C3", "C4")
 SUPPORTED_MODULES = (*MATERIAL_MODULES, "A5.1")
@@ -41,8 +41,9 @@ class AssessmentSettings:
         transport, treatment and disposal. All seven by default.
     material_factors, carrier_factors : mapping, optional
         Sourced Data factors by material/module or energy carrier. A carrier
-        factor is a constant B6 ``EnvironmentalFactor`` or a ``FactorProfile``
-        in kgCO2e/kWh (constant, weekday/weekend, monthly or hourly).
+        factor is a constant B6 ``EnvironmentalFactor``, a ``FactorProfile``
+        in kgCO2e/kWh (constant, weekday/weekend, monthly or hourly), or a
+        ``FactorTrajectory`` with one such profile per year of the period.
     flat_profile_for_annual_energy : bool, optional
         When a carrier factor varies but only annual energy is supplied, use the
         profile's time average (flat demand) instead of reporting a missing input.
@@ -73,9 +74,9 @@ class AssessmentSettings:
     material_factors: Mapping[str, Mapping[str, EnvironmentalFactor]] = field(
         default_factory=dict
     )
-    carrier_factors: Mapping[str, EnvironmentalFactor | FactorProfile] = field(
-        default_factory=dict
-    )
+    carrier_factors: Mapping[
+        str, EnvironmentalFactor | FactorProfile | FactorTrajectory
+    ] = field(default_factory=dict)
     include_energy: bool = True
     flat_profile_for_annual_energy: bool = False
     reference_area_m2: float | None = None
@@ -138,9 +139,13 @@ class AssessmentSettings:
         carriers = dict(self.carrier_factors)
         for carrier, factor in carriers.items():
             text(carrier, "energy carrier")
-            if isinstance(factor, FactorProfile):
+            if isinstance(factor, (FactorProfile, FactorTrajectory)):
                 if factor.unit != "kgCO2e/kWh":
                     raise ValueError("Operational factor profiles are in kgCO2e/kWh")
+                if isinstance(factor, FactorTrajectory) and not factor.covers(period):
+                    raise ValueError(
+                        f"{carrier}: the factor trajectory must cover {period:g} years"
+                    )
             elif (
                 not isinstance(factor, EnvironmentalFactor)
                 or factor.module != "B6"
@@ -327,7 +332,7 @@ class AssessmentSettings:
                 for key, factors in data.get("material_factors", {}).items()
             }
             data["carrier_factors"] = {
-                key: FactorProfile.from_dict(factor)
+                key: factor_from_dict(factor)
                 if "kind" in factor
                 else EnvironmentalFactor(**factor)
                 for key, factor in data.get("carrier_factors", {}).items()

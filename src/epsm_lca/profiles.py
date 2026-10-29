@@ -151,3 +151,84 @@ class FactorProfile:
             f"FactorProfile(kind={self.kind!r}, unit={self.unit!r}, "
             f"mean={self.mean:.4g}, year={self.year})"
         )
+
+
+@dataclass(frozen=True)
+class FactorTrajectory:
+    """A sourced factor per delivered kWh for each year of the assessment period.
+
+    Year 1 is the first year of the period. Each year is a ``FactorProfile``, so a
+    year can still vary by hour, weekday or month. The trajectory must cover every
+    year of the period that uses it; later years are never extrapolated.
+
+    Examples
+    --------
+    >>> grid = FactorTrajectory.from_values([0.05, 0.04, 0.03], "kgCO2e/kWh", "scenario")
+    >>> grid.unit, len(grid.years), round(grid.mean, 3)
+    ('kgCO2e/kWh', 3, 0.04)
+    """
+
+    years: tuple[FactorProfile, ...]
+    source: str
+
+    kind = "trajectory"
+
+    def __post_init__(self):
+        years = tuple(self.years)
+        if not years or any(not isinstance(y, FactorProfile) for y in years):
+            raise ValueError("A trajectory needs one FactorProfile per year")
+        if len({y.unit for y in years}) != 1:
+            raise ValueError("Every year of a trajectory must use the same unit")
+        text(self.source, "trajectory source")
+        object.__setattr__(self, "years", years)
+
+    @classmethod
+    def from_values(cls, values, unit, source):
+        """One constant factor per year."""
+        return cls(
+            tuple(FactorProfile.constant(v, unit, source) for v in values), source
+        )
+
+    @property
+    def unit(self):
+        return self.years[0].unit
+
+    @property
+    def varies(self):
+        return True
+
+    @property
+    def mean(self) -> float:
+        """Average of the yearly time-average factors."""
+        return math.fsum(y.mean for y in self.years) / len(self.years)
+
+    def covers(self, period) -> bool:
+        return len(self.years) >= math.ceil(period)
+
+    def to_dict(self):
+        return {
+            "kind": self.kind,
+            "years": [y.to_dict() for y in self.years],
+            "source": self.source,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Mapping):
+        if data.get("kind") != cls.kind:
+            raise ValueError("Not a saved trajectory")
+        return cls(
+            tuple(FactorProfile.from_dict(y) for y in data["years"]), data["source"]
+        )
+
+    def __repr__(self):
+        return (
+            f"FactorTrajectory(years={len(self.years)}, unit={self.unit!r}, "
+            f"mean={self.mean:.4g})"
+        )
+
+
+def factor_from_dict(data: Mapping):
+    """Load a saved profile or trajectory by its kind."""
+    if data.get("kind") == FactorTrajectory.kind:
+        return FactorTrajectory.from_dict(data)
+    return FactorProfile.from_dict(data)

@@ -10,6 +10,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
+from ._timeline import repay, years
 from ._validation import finite_sum, number, optional_number, same_total
 from .assessment import quantity_record
 from .indicators import payback_years, per_area
@@ -247,11 +248,29 @@ class StageResult:
     __str__ = __repr__
 
 
+def yearly_energy(row, period):
+    """Each year's B6 impact when a trajectory was used; otherwise None."""
+    records = [c for c in row["contributions"] if c.get("module") == "B6"]
+    if not any("yearly_gwp_kgco2e" in c for c in records):
+        return None
+    return [
+        sum(
+            c["yearly_gwp_kgco2e"][year - 1]
+            if "yearly_gwp_kgco2e" in c
+            else c["gwp_kgco2e"] * share / period
+            for c in records
+        )
+        for year, share in years(period)
+    ]
+
+
 def indicators(row, report):
     """Renovation carbon, payback and per-area totals for one saved row.
 
     Renovation carbon is material impact so far minus the baseline's. Annual
     saving is the baseline's energy impact minus this row's, over the period.
+    With yearly factor trajectories, payback follows the yearly savings and is
+    None when they do not repay within the period.
     """
     baseline, settings = report["baseline"], report["settings"]
     period, area = settings["period_years"], settings["reference_area_m2"]
@@ -268,11 +287,19 @@ def indicators(row, report):
         or baseline["energy_kgco2e"] is None
         else (baseline["energy_kgco2e"] - row["energy_kgco2e"]) / period
     )
+    payback = payback_years(renovation, saving)
+    if saving is not None:
+        before, after = yearly_energy(baseline, period), yearly_energy(row, period)
+        if before is not None or after is not None:
+            flat = [share / period for _, share in years(period)]
+            before = before or [baseline["energy_kgco2e"] * s for s in flat]
+            after = after or [row["energy_kgco2e"] * s for s in flat]
+            payback = repay(renovation, [b - a for b, a in zip(before, after)])
     total_per_m2 = per_area(row["total_kgco2e"], area)
     return {
         "renovation_kgco2e": renovation,
         "annual_energy_saving_kgco2e": saving,
-        "carbon_payback_years": payback_years(renovation, saving),
+        "carbon_payback_years": payback,
         "total_kgco2e_per_m2": total_per_m2,
         "total_kgco2e_per_m2_year": None
         if total_per_m2 is None
