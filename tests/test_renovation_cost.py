@@ -233,3 +233,54 @@ def test_simple_cost_payback_divides_investment_by_operating_saving():
         (stage(1, None),), "SEK", operating=(running(0, 9000.0), running(1, 7000.0))
     )
     assert unknown.simple_payback_years(1) is None
+
+
+def test_global_cost_and_discounted_payback_are_checkable_by_hand():
+    from types import MappingProxyType
+
+    from epsm_lca import OperatingCost, RenovationCostResult, StageCost
+
+    stage = StageCost(
+        1,
+        "s1",
+        (),
+        "SEK",
+        (),
+        MappingProxyType({}),
+        MappingProxyType({}),
+        0.0,
+        250.0,
+        250.0,
+        (2026,),
+    )
+
+    def running(step, annual, present):
+        return OperatingCost(
+            step,
+            f"s{step}",
+            "SEK",
+            MappingProxyType({}),
+            annual,
+            None,
+            present_value=present,
+        )
+
+    result = RenovationCostResult(
+        (stage,), "SEK", operating=(running(0, 300.0, 600.0), running(1, 200.0, 400.0))
+    )
+    assert result.global_cost(0) == 600.0
+    assert result.global_cost(1) == 650.0  # 250 invested + 400 operating
+    assert result.discounted_payback_years(1) == pytest.approx(2.5)
+    discounted = RenovationCostResult(
+        (stage,), "SEK", operating=result.operating, discount_rate=0.1
+    )
+    # Three discounted years repay 90.91 + 82.64 + 75.13 = 248.69 of 250.
+    repaid = sum(100 / 1.1**t for t in (1, 2, 3))
+    assert discounted.discounted_payback_years(1) == pytest.approx(
+        3 + (250 - repaid) / (100 / 1.1**4)
+    )
+    never = RenovationCostResult(
+        (stage,), "SEK", operating=result.operating, discount_rate=0.5
+    )
+    assert never.discounted_payback_years(1) is None
+    assert never.summary()["discounted_payback_years_by_step"] == {1: None}
