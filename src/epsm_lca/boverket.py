@@ -34,7 +34,9 @@ def _external_reference(material, refs, catalogue):
             try:
                 saved = json.loads(saved)
             except (TypeError, ValueError) as error:
-                raise ValueError("Saved carbon_reference must contain valid JSON") from error
+                raise ValueError(
+                    "Saved carbon_reference must contain valid JSON"
+                ) from error
         try:
             references.append(CarbonReference.from_dict(saved))
         except (TypeError, ValueError) as error:
@@ -63,11 +65,15 @@ def _external_reference(material, refs, catalogue):
         return None
     reference = references[0]
     if any(item.to_dict() != reference.to_dict() for item in references[1:]):
-        raise ValueError(f"{reference.identifier}: conflicting carbon reference records")
+        raise ValueError(
+            f"{reference.identifier}: conflicting carbon reference records"
+        )
     return reference
 
 
-def building_factors(building, *, catalogue=None, production="conservative", renovations=None):
+def building_factors(
+    building, *, catalogue=None, production="conservative", renovations=None
+):
     """Collect known factors over the saved path, including removed products.
 
     ``renovations`` is a loaded epsm_data RenovationCatalogue; its Boverket
@@ -100,7 +106,10 @@ def building_factors(building, *, catalogue=None, production="conservative", ren
         resource = resources.get(resource_id)
         if reference is not None:
             record = reference.to_dict()
-            if row.material_id in external_records and external_records[row.material_id] != record:
+            if (
+                row.material_id in external_records
+                and external_records[row.material_id] != record
+            ):
                 raise ValueError(
                     f"{row.material_id}: conflicting carbon references along the renovation path"
                 )

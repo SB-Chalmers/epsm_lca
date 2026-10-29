@@ -22,7 +22,8 @@ def _building():
     for mid in STOCK:
         payload["materials"][mid].pop("boverket_id", None)
         payload["materials"][mid]["carbon_assessment"] = {
-            "status": "retained_existing_unmapped", "reason": "Retained original stock."
+            "status": "retained_existing_unmapped",
+            "reason": "Retained original stock.",
         }
     catalogue = Catalogue(payload)
     return catalogue, Building(
@@ -33,17 +34,26 @@ def _building():
 
 def _settings(building, catalogue, **changes):
     return AssessmentSettings.from_building(
-        building, period_years=30, catalogue=catalogue, include_energy=False,
-        material_modules=("A1A3", "C4"), **changes,
+        building,
+        period_years=30,
+        catalogue=catalogue,
+        include_energy=False,
+        material_modules=("A1A3", "C4"),
+        **changes,
     )
 
 
 def test_known_addition_counts_only_intervention_and_preserves_unquantified_stock():
     catalogue, baseline = _building()
     cap = baseline.construction_set.elements[Role.GROUND_FLOOR].components[-1]
-    renovated = baseline.renovate(ConstructionOperation(
-        "add_component", Role.GROUND_FLOOR, component=cap, position=2,
-    ))
+    renovated = baseline.renovate(
+        ConstructionOperation(
+            "add_component",
+            Role.GROUND_FLOOR,
+            component=cap,
+            position=2,
+        )
+    )
     flow = renovated.material_flows[-1]
     assert STOCK <= {row.material_id for row in flow.retained}
     assert not STOCK & {row.material_id for row in flow.installed}
@@ -60,7 +70,9 @@ def test_known_addition_counts_only_intervention_and_preserves_unquantified_stoc
 
 def test_including_original_inventory_still_requires_unknown_production_factors():
     catalogue, building = _building()
-    report = assess_renovation(building, _settings(building, catalogue, baseline="include"))
+    report = assess_renovation(
+        building, _settings(building, catalogue, baseline="include")
+    )
     assert not report.complete
     assert report.baseline.total_kgco2e is None
     for mid in STOCK:
@@ -71,14 +83,26 @@ def test_including_original_inventory_still_requires_unknown_production_factors(
 def test_new_or_removed_unknown_stock_is_never_silently_excluded(action, module):
     catalogue, baseline = _building()
     top = baseline.construction_set.elements[Role.TOP_FLOOR]
-    ash = next(component for component in top.components
-               if any(share.material.json_id == COKE
-                      for slot in component.layers for share in slot.layer.materials))
+    ash = next(
+        component
+        for component in top.components
+        if any(
+            share.material.json_id == COKE
+            for slot in component.layers
+            for share in slot.layer.materials
+        )
+    )
     if action == "install":
-        operation = ConstructionOperation("add_component", Role.TOP_FLOOR, component=ash, position=0)
+        operation = ConstructionOperation(
+            "add_component", Role.TOP_FLOOR, component=ash, position=0
+        )
     else:
-        replacement = replace(top, components=tuple(c for c in top.components if c is not ash))
-        operation = ConstructionOperation("replace_element", Role.TOP_FLOOR, element=replacement)
+        replacement = replace(
+            top, components=tuple(c for c in top.components if c is not ash)
+        )
+        operation = ConstructionOperation(
+            "replace_element", Role.TOP_FLOOR, element=replacement
+        )
     renovated = baseline.renovate(operation)
     report = assess_renovation(renovated, _settings(renovated, catalogue))
     assert not report.complete

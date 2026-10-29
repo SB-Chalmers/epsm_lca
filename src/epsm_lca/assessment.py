@@ -151,9 +151,14 @@ def annual_factor_product(factor, annual_kwh, hourly_kwh=None, *, flat=False):
     if not factor.varies:
         return annual_kwh * factor.values[0], "constant"
     if flat:
-        return annual_kwh * factor.mean, f"flat-demand approximation of a {factor.kind} profile"
-    return None, (f"hourly delivered energy is needed for its {factor.kind} factor "
-                  "(or allow the flat-demand approximation)")
+        return (
+            annual_kwh * factor.mean,
+            f"flat-demand approximation of a {factor.kind} profile",
+        )
+    return None, (
+        f"hourly delivered energy is needed for its {factor.kind} factor "
+        "(or allow the flat-demand approximation)"
+    )
 
 
 def export_credit(energy, settings):
@@ -173,15 +178,28 @@ def export_credit(energy, settings):
         if factor is None:
             missing.append(f"{carrier} export: operational factor is missing")
             continue
-        annual, basis = annual_factor_product(factor, annual_kwh, hourly.get(carrier),
-                                              flat=settings.flat_profile_for_annual_energy)
+        annual, basis = annual_factor_product(
+            factor,
+            annual_kwh,
+            hourly.get(carrier),
+            flat=settings.flat_profile_for_annual_energy,
+        )
         if annual is None:
             missing.append(f"{carrier} export: {basis}")
             continue
         credit = -annual * settings.period_years
         values.append(credit)
-        lines.append({"carrier": carrier, "module": "D", "quantity": annual_kwh * settings.period_years,
-                      "unit": "kWh", "gwp_kgco2e": credit, "basis": basis, "source": factor.source})
+        lines.append(
+            {
+                "carrier": carrier,
+                "module": "D",
+                "quantity": annual_kwh * settings.period_years,
+                "unit": "kWh",
+                "gwp_kgco2e": credit,
+                "basis": basis,
+                "source": factor.source,
+            }
+        )
     total = finite_sum(values) if not missing else None
     return total, tuple(lines), tuple(missing)
 
@@ -220,8 +238,11 @@ def energy_impact(energy, settings):
             missing.append(f"{carrier}: operational factor is missing")
             continue
         annual, basis = annual_factor_product(
-            factor, annual_kwh, hourly.get(carrier),
-            flat=settings.flat_profile_for_annual_energy)
+            factor,
+            annual_kwh,
+            hourly.get(carrier),
+            flat=settings.flat_profile_for_annual_energy,
+        )
         if annual is None:
             missing.append(f"{carrier}: {basis}")
             continue
