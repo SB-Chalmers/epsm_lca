@@ -1,9 +1,10 @@
 # Moving from 0.3 to 0.4
 
-Saved settings now use `epsm-lca-settings/2` and renovation reports use
-`epsm-lca-renovation/2`. Older settings and reports are not read; rerun the
-assessment to produce them again. Settings gain the optional
-`reference_area_m2` and `reference_area_basis`.
+Renovation reports now use `epsm-lca-renovation/2`; older reports are not read,
+so rerun the assessment to produce them again. Settings are written as
+`epsm-lca-settings/2` with the optional `reference_area_m2` and
+`reference_area_basis`; format 1 settings, held by saved EPSM buildings and
+studies, still load without a reference area.
 
 # Moving from 0.1 to 0.2
 

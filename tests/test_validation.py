@@ -86,11 +86,22 @@ def test_valid_older_results_remain_readable_without_invented_context():
         LCAResult.from_dict({**result.to_dict(), "format": "future"})
 
 
-def test_older_settings_formats_are_rejected():
+def test_format_one_settings_held_by_saved_buildings_still_load():
     saved = AssessmentSettings(30).to_dict()
-    for old in ({**saved, "format": "epsm-lca-settings/1"}, {"period_years": 30}):
-        with pytest.raises(ValueError, match="Unsupported"):
-            AssessmentSettings.from_dict(old)
+    del saved["reference_area_m2"], saved["reference_area_basis"]
+    old = {**saved, "format": "epsm-lca-settings/1"}
+    assert AssessmentSettings.from_dict(old) == AssessmentSettings(30)
+    unversioned = dict(
+        period_years=30,
+        energy_boundary="space_heating_and_fans",
+        baseline="retained",
+        material_modules=("A1A3",),
+    )
+    assert AssessmentSettings.from_dict(unversioned).include_energy is True
+    with pytest.raises(ValueError, match="lack recorded"):
+        AssessmentSettings.from_dict({"period_years": 30})
+    with pytest.raises(ValueError, match="Unsupported"):
+        AssessmentSettings.from_dict({**saved, "format": "epsm-lca-settings/9"})
 
 
 def test_reference_area_requires_a_basis():

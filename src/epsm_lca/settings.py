@@ -281,12 +281,34 @@ class AssessmentSettings:
 
     @classmethod
     def from_dict(cls, value: Mapping) -> AssessmentSettings:
-        """Load current-format settings and validate their factor records."""
+        """Load saved settings and validate their factor records.
+
+        Format 1 settings, which saved EPSM buildings and studies still hold,
+        load without a reference area. Unversioned settings must record every
+        assessment choice.
+        """
         if not isinstance(value, Mapping):
             raise ValueError("Assessment settings must be a mapping")
         data = dict(value)
-        if data.pop("format", None) != "epsm-lca-settings/2":
+        if "format" not in data and any(
+            name not in data
+            for name in (
+                "period_years",
+                "energy_boundary",
+                "baseline",
+                "material_modules",
+            )
+        ):
+            raise ValueError(
+                "Old settings lack recorded assessment choices; supply them explicitly"
+            )
+        saved_format = data.pop("format", "epsm-lca-settings/1")
+        if saved_format not in {"epsm-lca-settings/1", "epsm-lca-settings/2"}:
             raise ValueError("Unsupported assessment settings format")
+        if saved_format == "epsm-lca-settings/1" and (
+            "reference_area_m2" in data or "reference_area_basis" in data
+        ):
+            raise ValueError("Format 1 settings have no reference area")
         if not isinstance(data.get("material_factors", {}), Mapping) or not isinstance(
             data.get("carrier_factors", {}), Mapping
         ):
