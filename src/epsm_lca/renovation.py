@@ -18,6 +18,7 @@ from ._version import __version__
 from .assessment import energy_impact, flow_rows, material_impact, quantity_record
 from .energy import AnnualEnergy
 from .renovation_result import RenovationResult, StageResult
+from .replacement import replacement_impact
 from .settings import AssessmentSettings
 
 logger = context_logger(__name__)
@@ -184,17 +185,24 @@ def _assess_renovation(building, settings, *, energy=None, emit=True):
             else finite_sum((cumulative, material))
         )
         operating, energy_gaps, energy_records = energy_impact(supplied, settings)
-        missing = [*material_gaps, *energy_gaps]
+        replacement, replacement_gaps, replacement_records = (
+            replacement_impact(stages[:step], settings, step=step)
+            if settings.include_replacements
+            else (None, (), ())
+        )
+        missing = [*material_gaps, *energy_gaps, *replacement_gaps]
         if cumulative is None and not material_gaps:
             missing.append(
                 "Material impact so far is unavailable; check earlier steps or nonfinite sums"
             )
         total = None
         if not missing:
-            total = (
-                finite_sum((cumulative, operating))
-                if settings.include_energy
-                else cumulative
+            total = finite_sum(
+                (
+                    cumulative,
+                    replacement or 0.0,
+                    operating if settings.include_energy else 0.0,
+                )
             )
             if total is None:
                 missing.append("Calculated combined impact total must be finite")
@@ -207,6 +215,7 @@ def _assess_renovation(building, settings, *, energy=None, emit=True):
         )
         records = (
             *material_records,
+            *replacement_records,
             *(
                 dict(r, step=step, stage_id=stage_id, source_energy=supplied.source)
                 for r in energy_records
@@ -223,6 +232,7 @@ def _assess_renovation(building, settings, *, energy=None, emit=True):
             energy_kgco2e=operating,
             total_kgco2e=total,
             savings_kgco2e=savings,
+            replacement_kgco2e=replacement,
             status="incomplete" if missing else "complete",
             requirements=tuple(dict.fromkeys(missing)),
             contributions=records,

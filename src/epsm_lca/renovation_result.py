@@ -54,6 +54,9 @@ class StageResult:
         Zero is baseline; renovation steps start at one.
     material_kgco2e, material_so_far_kgco2e : float or None
         Impact of this step and accumulated material impact through this step.
+    replacement_kgco2e : float or None
+        B4 replacement of this state's renovation work over the period; None
+        when replacements are not counted or cannot be completed.
     energy_kgco2e, total_kgco2e, savings_kgco2e : float or None
         This state's energy impact, combined total and baseline minus total.
     added_quantities, removed_quantities : tuple of dict
@@ -102,6 +105,7 @@ class StageResult:
         contributions=(),
         include_energy=True,
         diagnostic_codes=None,
+        replacement_kgco2e=None,
     ):
         from epsm_core import BuildingSnapshot
 
@@ -117,10 +121,13 @@ class StageResult:
         cumulative = optional_number(material_so_far_kgco2e, "material impact so far")
         operating = optional_number(energy_kgco2e, "energy impact")
         total = optional_number(total_kgco2e, "total climate impact")
+        replacement = optional_number(replacement_kgco2e, "replacement impact")
         savings = optional_number(savings_kgco2e, "climate savings")
-        LCAResult(
+        LCAResult(  # B4 belongs to the material side of the combined total.
             status,
-            cumulative,
+            cumulative
+            if replacement is None or cumulative is None
+            else finite_sum((cumulative, replacement)),
             operating,
             total,
             requirements,
@@ -131,12 +138,12 @@ class StageResult:
         records = tuple(dict(r) for r in contributions)
         for r in records:
             number(r.get("gwp_kgco2e"), "contribution impact")
-        for operating_part, claimed in ((False, material), (True, operating)):
-            values = [
-                r["gwp_kgco2e"]
-                for r in records
-                if (r.get("module") == "B6") == operating_part
-            ]
+
+        def part(record):
+            return record.get("module") if record.get("module") in {"B4", "B6"} else "A"
+
+        for kind, claimed in (("A", material), ("B4", replacement), ("B6", operating)):
+            values = [r["gwp_kgco2e"] for r in records if part(r) == kind]
             if values and claimed is not None:
                 expected = finite_sum(values)
                 if expected is None or not same_total(claimed, expected):
@@ -157,6 +164,7 @@ class StageResult:
             energy_kgco2e=operating,
             total_kgco2e=total,
             savings_kgco2e=savings,
+            replacement_kgco2e=replacement,
             status=status,
             requirements=tuple(requirements),
             added_quantities=added,
@@ -179,6 +187,7 @@ class StageResult:
                 "energy_kgco2e",
                 "total_kgco2e",
                 "savings_kgco2e",
+                "replacement_kgco2e",
                 "status",
                 "requirements",
             )
@@ -453,6 +462,7 @@ class RenovationResult:
                         "measure_ids",
                         "material_kgco2e",
                         "material_so_far_kgco2e",
+                        "replacement_kgco2e",
                         "energy_kgco2e",
                         "total_kgco2e",
                         "savings_kgco2e",

@@ -88,7 +88,13 @@ def test_valid_older_results_remain_readable_without_invented_context():
 
 def test_format_one_settings_held_by_saved_buildings_still_load():
     saved = AssessmentSettings(30).to_dict()
-    del saved["reference_area_m2"], saved["reference_area_basis"]
+    for name in (
+        "reference_area_m2",
+        "reference_area_basis",
+        "include_replacements",
+        "service_lives",
+    ):
+        del saved[name]
     old = {**saved, "format": "epsm-lca-settings/1"}
     assert AssessmentSettings.from_dict(old) == AssessmentSettings(30)
     unversioned = dict(
