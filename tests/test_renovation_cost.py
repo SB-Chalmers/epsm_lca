@@ -271,6 +271,26 @@ def test_global_cost_and_discounted_payback_are_checkable_by_hand():
     assert result.global_cost(0) == 600.0
     assert result.global_cost(1) == 650.0  # 250 invested + 400 operating
     assert result.discounted_payback_years(1) == pytest.approx(2.5)
+    from epsm_lca import ReplacementCost
+
+    replaced = RenovationCostResult(
+        (stage,),
+        "SEK",
+        operating=result.operating,
+        replacements=(
+            ReplacementCost(0, "SEK", (), 0.0, 0.0, residual_value=0.0),
+            ReplacementCost(1, "SEK", (), 100.0, 90.0, residual_value=30.0),
+        ),
+    )
+    # 250 invested + 400 operating + 90 replaced − 30 still in use.
+    assert replaced.global_cost(1) == 710.0
+    unknown = RenovationCostResult(
+        (stage,),
+        "SEK",
+        operating=result.operating,
+        replacements=(ReplacementCost(1, "SEK", (), 100.0, 90.0),),
+    )
+    assert unknown.global_cost(1) is None
     discounted = RenovationCostResult(
         (stage,), "SEK", operating=result.operating, discount_rate=0.1
     )
@@ -375,10 +395,26 @@ def test_measures_are_bought_again_when_their_service_life_ends(library):
     assert (line["year"], line["cost"]) == (50.0, pytest.approx(stage.total))
     assert after.present_value == pytest.approx(stage.total / 1.03**50)
     assert result.summary()["replacement_cost_by_step"] == {0: 0.0, 1: after.total}
+    # The year-50 purchase has 40 of its 50 years left at year 60.
+    (left,) = after.residual_lines
+    assert (left["last_purchase_year"], left["remaining_life_years"]) == (50.0, 40.0)
+    assert left["residual"] == pytest.approx(0.8 * stage.total)
+    assert after.residual_value == pytest.approx(0.8 * stage.total / 1.03**60)
+    assert result.summary()["residual_value_by_step"] == {
+        0: 0.0,
+        1: pytest.approx(after.residual_value),
+    }
     short = CostSettings.from_catalogue(
         renovations, period_years=40, include_replacements=True
     )
-    assert assess_renovation_cost(child, short).replacements[1].lines == ()
+    brief = assess_renovation_cost(child, short).replacements[1]
+    assert brief.lines == ()
+    # Never replaced: 10 of 50 years are left, undiscounted at rate 0.
+    assert brief.residual_value == pytest.approx(0.2 * stage.total)
+    exact = CostSettings.from_catalogue(
+        renovations, period_years=50, include_replacements=True
+    )
+    assert assess_renovation_cost(child, exact).replacements[1].residual_value == 0.0
     unknown = CostSettings(
         settings.estimates, period_years=60, include_replacements=True
     )
