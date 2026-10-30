@@ -15,8 +15,9 @@ from collections.abc import Iterable, Mapping
 from epsm_lca._logging import context_logger
 from epsm_lca._logging import operation as logged_operation
 
+from ._timeline import years
 from ._validation import finite_sum, number, text
-from .profiles import FactorProfile
+from .profiles import FactorProfile, FactorTrajectory
 from .result import LCAResult
 from .settings import AssessmentSettings
 
@@ -135,7 +136,11 @@ def material_impact(
 
 
 def factor_mean(factor):
-    return factor.mean if isinstance(factor, FactorProfile) else factor.value
+    return (
+        factor.mean
+        if isinstance(factor, (FactorProfile, FactorTrajectory))
+        else factor.value
+    )
 
 
 def annual_factor_product(factor, annual_kwh, hourly_kwh=None, *, flat=False):
@@ -161,6 +166,35 @@ def annual_factor_product(factor, annual_kwh, hourly_kwh=None, *, flat=False):
     )
 
 
+def period_factor_product(factor, annual_kwh, hourly_kwh, period, *, flat=False):
+    """Delivered energy times a factor over the period, with its yearly values.
+
+    Returns ``(total, yearly, basis)``. ``yearly`` lists each year's amount, with
+    a partial last year counted for its share, only for a ``FactorTrajectory``;
+    otherwise it is None and every year has the same amount. ``total`` is None,
+    with the reason as basis, when any year cannot be valued.
+    """
+    if not isinstance(factor, FactorTrajectory):
+        annual, basis = annual_factor_product(factor, annual_kwh, hourly_kwh, flat=flat)
+        return (None if annual is None else annual * period), None, basis
+    if not factor.covers(period):
+        return None, None, f"its trajectory covers fewer than {period:g} years"
+    yearly, bases = [], set()
+    for year, share in years(period):
+        annual, basis = annual_factor_product(
+            factor.years[year - 1], annual_kwh, hourly_kwh, flat=flat
+        )
+        if annual is None:
+            return None, None, f"year {year}: {basis}"
+        yearly.append(annual * share)
+        bases.add(basis)
+    return (
+        math.fsum(yearly),
+        tuple(yearly),
+        "yearly trajectory: " + "; ".join(sorted(bases)),
+    )
+
+
 def export_credit(energy, settings):
     """Module D: avoided grid impact of exported energy over the period, outside the total.
 
@@ -178,16 +212,17 @@ def export_credit(energy, settings):
         if factor is None:
             missing.append(f"{carrier} export: operational factor is missing")
             continue
-        annual, basis = annual_factor_product(
+        period_value, _, basis = period_factor_product(
             factor,
             annual_kwh,
             hourly.get(carrier),
+            settings.period_years,
             flat=settings.flat_profile_for_annual_energy,
         )
-        if annual is None:
+        if period_value is None:
             missing.append(f"{carrier} export: {basis}")
             continue
-        credit = -annual * settings.period_years
+        credit = -period_value
         values.append(credit)
         lines.append(
             {
@@ -237,35 +272,36 @@ def energy_impact(energy, settings):
         if factor is None:
             missing.append(f"{carrier}: operational factor is missing")
             continue
-        annual, basis = annual_factor_product(
+        impact, yearly, basis = period_factor_product(
             factor,
             annual_kwh,
             hourly.get(carrier),
+            settings.period_years,
             flat=settings.flat_profile_for_annual_energy,
         )
-        if annual is None:
+        if impact is None:
             missing.append(f"{carrier}: {basis}")
             continue
         period_kwh = annual_kwh * settings.period_years
-        impact = annual * settings.period_years
         if not math.isfinite(period_kwh) or not math.isfinite(impact):
             missing.append(
                 f"{carrier}: calculated period energy and operational impact must be finite"
             )
             continue
         values.append(impact)
-        contributions.append(
-            dict(
-                carrier=carrier,
-                module="B6",
-                quantity=period_kwh,
-                unit="kWh",
-                factor_value=annual / annual_kwh if annual_kwh else factor_mean(factor),
-                gwp_kgco2e=impact,
-                source=factor.source,
-                factor_basis=basis,
-            )
+        record = dict(
+            carrier=carrier,
+            module="B6",
+            quantity=period_kwh,
+            unit="kWh",
+            factor_value=impact / period_kwh if period_kwh else factor_mean(factor),
+            gwp_kgco2e=impact,
+            source=factor.source,
+            factor_basis=basis,
         )
+        if yearly is not None:
+            record["yearly_gwp_kgco2e"] = list(yearly)
+        contributions.append(record)
     total = finite_sum(values)
     if total is None:
         missing.append("Calculated operational impact total must be finite")

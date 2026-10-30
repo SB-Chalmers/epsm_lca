@@ -12,7 +12,7 @@ removed, their impacts, material impact so far, energy impact, total impact and
 savings compared with the baseline. Results are in **kg CO₂e**: climate impact
 expressed as an equivalent mass of carbon dioxide.
 
-**Version:** 0.3.0. Python 3.11 or newer. This is a climate assessment
+**Version:** 0.4.0. Python 3.11 or newer. This is a climate assessment
 of declared work and supplied energy, not a claim of complete building
 certification. Future replacements, final demolition and dated operating periods
 are not inferred.
@@ -157,6 +157,69 @@ is 30,000 kg CO₂e. After windows, total impact is 27,220 and savings are 2,780
 After insulation, total impact is 24,500 and savings are 5,500. Those energy
 values are assumptions, not predicted energy savings. Substitute annual totals
 from your measurement or simulation, and a sourced factor, for research use.
+
+## Payback and per-area results
+
+Each `report.table()` row also reports:
+
+- `renovation_kgco2e`: material impact so far minus the baseline's.
+- `annual_energy_saving_kgco2e`: the baseline's energy impact minus this row's,
+  divided by the period.
+- `carbon_payback_years`: renovation carbon ÷ annual energy saving. It is `None`
+  when energy is excluded or unknown, or when the row does not save energy.
+- `total_kgco2e_per_m2` and `total_kgco2e_per_m2_year`, when the settings have a
+  reference area.
+
+In the teaching example, windows add 220 kg CO₂e and save 100 kg a year, so they
+pay back in 2.2 years; both steps add 500 kg and save 200 kg a year: 2.5 years.
+
+Set `reference_area_m2` with a `reference_area_basis` that says what the area is,
+for example `"Atemp"`. `AssessmentSettings.from_building` uses Core's conditioned
+floor area, labelled as such, unless you pass your own. One area is used for every
+row. `assess_renovation_cost(...).simple_payback_years(step)` gives the matching
+undiscounted cost payback: stage costs through that step ÷ the annual operating
+cost saving against the baseline.
+
+## Discounted cost
+
+`CostSettings(discount_rate=..., price_escalation=...)` takes real annual rates
+(0.03 is 3 %). Investments are made at the start of year 1. Operating cost in year
+*t* is multiplied by (1 + escalation)ᵗ ÷ (1 + rate)ᵗ, and a partial last year
+counts for its share. Both rates are 0 by default, so present values equal the
+undiscounted period totals.
+
+- `operating[i].present_value`: the state's operating cost over the period.
+- `global_cost(step)`: stage costs through the step plus that state's operating
+  present value; step 0 is the baseline. The lowest global cost is the
+  cost-optimal state over the period (as in EN 15459, without residual value).
+- `discounted_payback_years(step)`: when discounted savings repay the stage
+  costs, interpolated within the year. `None` if they never do.
+
+## Replacements within the period (B4)
+
+Set `include_replacements=True` and give each renovation measure a sourced
+`ServiceLife`, keyed by catalogue candidate ID or measure ID.
+`AssessmentSettings.from_building(..., renovations=catalogue)` supplies the
+catalogue's `service_life_years` for the measures on the building, and
+`CostSettings.from_catalogue` does the same for costs.
+
+```python
+from epsm_lca import ServiceLife
+
+settings = AssessmentSettings(
+    30,
+    include_replacements=True,
+    service_lives={"windows": ServiceLife(20, "Your source")},
+)
+```
+
+Work whose life ends within the period is replaced `ceil(period / life) − 1`
+times. Each step reports `replacement_kgco2e`, included in its total; B4
+contributions carry the replacement `year` and the `replaced_module`. On the cost
+side, `replacements` lists each measure bought again at its stage price,
+discounted to its year, and `global_cost` includes it. Existing baseline
+components are not replaced. Replacements need an `epsm_core` that records which
+measure installed each material.
 
 ## Missing inputs, saving and plotting
 

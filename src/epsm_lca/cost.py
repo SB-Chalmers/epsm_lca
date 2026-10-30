@@ -20,10 +20,13 @@ from types import MappingProxyType
 from epsm_core import Building
 from epsm_data import MEASURE_TYPES, CostEstimate
 
+from ._timeline import discounted_payback, present_value, repay, years
 from ._validation import finite_sum
-from .assessment import annual_factor_product
+from .assessment import annual_factor_product, period_factor_product
 from .energy import AnnualEnergy
-from .profiles import FactorProfile
+from .indicators import payback_years
+from .profiles import FactorProfile, FactorTrajectory
+from .replacement import ServiceLife, life_for, surviving_installations
 
 CATEGORIES = ("material", "labour", "subcontractor", "overhead")
 
@@ -37,6 +40,20 @@ class CostSettings:
     operating cost into an undiscounted period total. Varying prices need hourly
     delivered energy unless ``flat_profile_for_annual_energy`` is set.
 
+    A price can also be a ``FactorTrajectory`` with one profile per year of
+    ``period_years``; ``price_escalation`` must then be 0, since the trajectory
+    states each year's price.
+
+    With ``include_replacements``, each priced measure is bought again whenever
+    its ``service_lives`` entry (by candidate or measure ID) ends within
+    ``period_years``, at the same stage price, discounted to its year.
+
+    ``discount_rate`` and ``price_escalation`` are real annual rates (0.03 is 3 %)
+    used for present values, global cost and discounted payback. Investments are
+    made at the start of year 1; operating cost in year ``t`` is multiplied by
+    ``(1 + price_escalation)**t / (1 + discount_rate)**t``. Both are 0 by default,
+    which keeps present values equal to the undiscounted period totals.
+
     Examples
     --------
     >>> settings = CostSettings({}, currency="SEK")
@@ -46,23 +63,58 @@ class CostSettings:
 
     estimates: Mapping[str, CostEstimate]
     currency: str = "SEK"
-    carrier_prices: Mapping[str, FactorProfile] = field(default_factory=dict)
+    carrier_prices: Mapping[str, FactorProfile | FactorTrajectory] = field(
+        default_factory=dict
+    )
     period_years: float | None = None
-    export_prices: Mapping[str, FactorProfile] = field(default_factory=dict)
+    export_prices: Mapping[str, FactorProfile | FactorTrajectory] = field(
+        default_factory=dict
+    )
     flat_profile_for_annual_energy: bool = False
+    discount_rate: float = 0.0
+    price_escalation: float = 0.0
+    include_replacements: bool = False
+    service_lives: Mapping[str, ServiceLife] = field(default_factory=dict)
 
     def __post_init__(self):
+        if not isinstance(self.include_replacements, bool):
+            raise ValueError("include_replacements must be True or False")
+        if any(not isinstance(v, ServiceLife) for v in self.service_lives.values()):
+            raise ValueError("service_lives must map IDs to ServiceLife records")
+        object.__setattr__(
+            self, "service_lives", MappingProxyType(dict(self.service_lives))
+        )
+        for name in ("discount_rate", "price_escalation"):
+            value = getattr(self, name)
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(value)
+                or value <= -1
+            ):
+                raise ValueError(f"{name} must be a finite rate above -1")
+            object.__setattr__(self, name, float(value))
         for name in ("carrier_prices", "export_prices"):
             prices = dict(getattr(self, name))
             for carrier, price in prices.items():
                 if (
-                    not isinstance(price, FactorProfile)
+                    not isinstance(price, (FactorProfile, FactorTrajectory))
                     or price.unit != f"{self.currency}/kWh"
                 ):
                     raise ValueError(
                         f"{carrier}: prices must be FactorProfile records in "
                         f"{self.currency}/kWh"
                     )
+                if isinstance(price, FactorTrajectory):
+                    if self.period_years is None or not price.covers(self.period_years):
+                        raise ValueError(
+                            f"{carrier}: a price trajectory must cover period_years"
+                        )
+                    if self.price_escalation:
+                        raise ValueError(
+                            f"{carrier}: a price trajectory already states each "
+                            "year's price; set price_escalation to 0"
+                        )
             object.__setattr__(self, name, MappingProxyType(prices))
         if self.period_years is not None and not (
             isinstance(self.period_years, (int, float))
@@ -84,7 +136,16 @@ class CostSettings:
 
     @classmethod
     def from_catalogue(cls, renovations, *, currency="SEK", **choices):
-        """Collect the estimates already attached to a loaded RenovationCatalogue."""
+        """Collect the estimates and service lives of a loaded RenovationCatalogue."""
+        lives = {
+            c.candidate_id: ServiceLife(
+                c.service_life_years,
+                "epsm_data renovation catalogue service_life_years",
+            )
+            for c in renovations
+            if c.service_life_years is not None
+        }
+        choices["service_lives"] = {**lives, **choices.get("service_lives", {})}
         return cls(
             {c.candidate_id: c.cost for c in renovations if c.cost is not None},
             currency=currency,
@@ -104,6 +165,8 @@ class OperatingCost:
     period: float | None
     lines: tuple[dict, ...] = ()
     requirements: tuple[str, ...] = ()
+    present_value: float | None = None
+    yearly: tuple[float, ...] | None = None
 
     @property
     def status(self):
@@ -117,6 +180,8 @@ class OperatingCost:
             "status": self.status,
             "annual": self.annual,
             "period": self.period,
+            "present_value": self.present_value,
+            "yearly": None if self.yearly is None else list(self.yearly),
             "annual_by_carrier": dict(self.annual_by_carrier),
             "lines": [dict(line) for line in self.lines],
             "requirements": list(self.requirements),
@@ -163,6 +228,33 @@ class StageCost:
 
 
 @dataclass(frozen=True)
+class ReplacementCost:
+    """Measures of one state bought again within the period, by year."""
+
+    step: int
+    currency: str
+    lines: tuple[dict, ...]
+    total: float | None
+    present_value: float | None
+    requirements: tuple[str, ...] = ()
+
+    @property
+    def status(self):
+        return "incomplete" if self.requirements else "complete"
+
+    def to_dict(self):
+        return {
+            "step": self.step,
+            "currency": self.currency,
+            "status": self.status,
+            "total": self.total,
+            "present_value": self.present_value,
+            "lines": [dict(line) for line in self.lines],
+            "requirements": list(self.requirements),
+        }
+
+
+@dataclass(frozen=True)
 class RenovationCostResult:
     """Costs of every recorded renovation stage of one building."""
 
@@ -170,6 +262,10 @@ class RenovationCostResult:
     currency: str
     producer: Mapping[str, str] = field(default_factory=dict)
     operating: tuple[OperatingCost, ...] = ()
+    discount_rate: float = 0.0
+    price_escalation: float = 0.0
+    period_years: float | None = None
+    replacements: tuple[ReplacementCost, ...] = ()
 
     @property
     def priced_subtotal(self):
@@ -183,9 +279,98 @@ class RenovationCostResult:
 
     @property
     def status(self):
-        parts = (*self.stages, *self.operating)
+        parts = (*self.stages, *self.operating, *self.replacements)
         return (
             "complete" if all(p.status == "complete" for p in parts) else "incomplete"
+        )
+
+    def investment_so_far(self, step):
+        """Stage costs through ``step``; None when any of them is incomplete."""
+        totals = [s.total for s in self.stages if s.step <= step]
+        return None if None in totals else finite_sum(totals) or 0.0
+
+    def simple_payback_years(self, step):
+        """Undiscounted years until operating savings repay stages 1..``step``.
+
+        The saving is the baseline's annual operating cost minus this state's.
+        None when either cost is unknown or the state does not save money.
+
+        Examples
+        --------
+        >>> RenovationCostResult((), "SEK").simple_payback_years(1) is None
+        True
+        """
+        yearly = self._yearly_savings(step, 0.0)
+        if yearly is not None:
+            return repay(self.investment_so_far(step), yearly)
+        return payback_years(self.investment_so_far(step), self.annual_saving(step))
+
+    def annual_saving(self, step):
+        """Baseline annual operating cost minus this state's; None if unknown."""
+        annual = {o.step: o.annual for o in self.operating}
+        if annual.get(0) is None or annual.get(step) is None:
+            return None
+        return annual[0] - annual[step]
+
+    def _yearly_savings(self, step, rate):
+        """Discounted yearly savings when a price trajectory was used, else None."""
+        states = {o.step: o for o in self.operating}
+        base, state = states.get(0), states.get(step)
+        if (
+            base is None
+            or state is None
+            or (base.yearly is None and state.yearly is None)
+            or base.annual is None
+            or state.annual is None
+        ):
+            return None
+        shares = list(years(self.period_years))
+
+        def series(o):
+            return o.yearly or [o.annual * share for _, share in shares]
+
+        return [
+            (b - a) / (1 + rate) ** year
+            for (year, _), b, a in zip(shares, series(base), series(state))
+        ]
+
+    def global_cost(self, step):
+        """Stage costs through ``step`` plus this state's operating present value.
+
+        Step 0 is the baseline's operating present value alone. Counted
+        replacements add their present value. None when an investment, the
+        state's operating cost or its replacements are incomplete.
+
+        Examples
+        --------
+        >>> RenovationCostResult((), "SEK").global_cost(0) is None
+        True
+        """
+        investment = 0.0 if step == 0 else self.investment_so_far(step)
+        running = {o.step: o.present_value for o in self.operating}.get(step)
+        if investment is None or running is None:
+            return None
+        if self.replacements:
+            replaced = {r.step: r.present_value for r in self.replacements}.get(step)
+            if replaced is None:
+                return None
+            running += replaced
+        return investment + running
+
+    def discounted_payback_years(self, step):
+        """Years until discounted operating savings repay stages 1..``step``.
+
+        With price trajectories, savings are followed year by year and must
+        repay within the period.
+        """
+        yearly = self._yearly_savings(step, self.discount_rate)
+        if yearly is not None:
+            return repay(self.investment_so_far(step), yearly)
+        return discounted_payback(
+            self.investment_so_far(step),
+            self.annual_saving(step),
+            rate=self.discount_rate,
+            escalation=self.price_escalation,
         )
 
     def summary(self):
@@ -197,6 +382,18 @@ class RenovationCostResult:
             "step_count": len(self.stages),
             "incomplete_steps": [s.step for s in self.stages if s.status != "complete"],
             "annual_operating_by_step": {o.step: o.annual for o in self.operating},
+            "simple_payback_years_by_step": {
+                s.step: self.simple_payback_years(s.step) for s in self.stages
+            },
+            "discount_rate": self.discount_rate,
+            "price_escalation": self.price_escalation,
+            "global_cost_by_step": {
+                o.step: self.global_cost(o.step) for o in self.operating
+            },
+            "discounted_payback_years_by_step": {
+                s.step: self.discounted_payback_years(s.step) for s in self.stages
+            },
+            "replacement_cost_by_step": {r.step: r.total for r in self.replacements},
         }
 
     def to_dict(self):
@@ -205,7 +402,81 @@ class RenovationCostResult:
             "producer": dict(self.producer),
             "stages": [s.to_dict() for s in self.stages],
             "operating": [o.to_dict() for o in self.operating],
+            "replacements": [r.to_dict() for r in self.replacements],
         }
+
+
+def replacement_cost(building, settings, stage_costs):
+    """Replacement purchases of every state's surviving priced measures."""
+    stages = tuple(building.stages)
+    results = []
+    for step in range(len(stages) + 1):
+        lines, missing = [], []
+        if settings.period_years is None:
+            missing.append("period_years is needed to count replacements")
+        surviving = surviving_installations(stages[:step])
+        for stage, cost in zip(stages[:step], stage_costs):
+            recorded = dict(getattr(stage, "installed_by", ()) or ())
+            candidates = {q.measure_id: q.candidate_id for q in stage.quantities}
+            for measure_id, amount in cost.by_measure.items():
+                own = {k for k, m in recorded.items() if m == measure_id}
+                if own and not own & surviving.keys():
+                    continue  # a later stage removed this work
+                life = life_for(
+                    settings.service_lives, measure_id, candidates.get(measure_id)
+                )
+                if life is None:
+                    missing.append(f"{measure_id}: service life is missing")
+                    continue
+                if cost.total is None:
+                    missing.append(
+                        f"{measure_id}: stage {cost.step} cost is incomplete; "
+                        "its replacement cost is unknown"
+                    )
+                for year in life.replacement_years(settings.period_years or 0):
+                    lines.append(
+                        {
+                            "measure_id": measure_id,
+                            "stage": cost.step,
+                            "year": year,
+                            "cost": amount,
+                            "present_value": amount
+                            / (1 + settings.discount_rate) ** year,
+                            "service_life_years": life.years,
+                            "service_life_source": life.source,
+                        }
+                    )
+        missing = tuple(dict.fromkeys(missing))
+        results.append(
+            ReplacementCost(
+                step,
+                settings.currency,
+                tuple(lines),
+                None if missing else finite_sum(x["cost"] for x in lines) or 0.0,
+                None
+                if missing
+                else finite_sum(x["present_value"] for x in lines) or 0.0,
+                missing,
+            )
+        )
+    return tuple(results)
+
+
+def _priced(price, annual_kwh, hourly_kwh, settings):
+    """Annual cost and, for a trajectory, each year's cost over the period."""
+    if not isinstance(price, FactorTrajectory):
+        annual, basis = annual_factor_product(
+            price, annual_kwh, hourly_kwh, flat=settings.flat_profile_for_annual_energy
+        )
+        return annual, None, basis
+    total, yearly, basis = period_factor_product(
+        price,
+        annual_kwh,
+        hourly_kwh,
+        settings.period_years,
+        flat=settings.flat_profile_for_annual_energy,
+    )
+    return (None if total is None else total / settings.period_years), yearly, basis
 
 
 def operating_cost(building, settings, energy):
@@ -235,22 +506,21 @@ def operating_cost(building, settings, energy):
             raise ValueError(
                 f"Energy for step {step} describes a different building state"
             )
-        lines, requirements, by_carrier = [], [], {}
+        lines, requirements, by_carrier, yearly_by_carrier = [], [], {}, {}
         for carrier, annual_kwh in supplied.delivered_by_carrier.items():
             price = settings.carrier_prices.get(carrier)
             if price is None:
                 requirements.append(f"{carrier}: energy price is missing")
                 continue
-            annual, basis = annual_factor_product(
-                price,
-                annual_kwh,
-                supplied.hourly_by_carrier.get(carrier),
-                flat=settings.flat_profile_for_annual_energy,
+            annual, yearly, basis = _priced(
+                price, annual_kwh, supplied.hourly_by_carrier.get(carrier), settings
             )
             if annual is None:
                 requirements.append(f"{carrier}: {basis}")
                 continue
             by_carrier[carrier] = annual
+            if yearly is not None:
+                yearly_by_carrier[carrier] = yearly
             lines.append(
                 {
                     "carrier": carrier,
@@ -267,14 +537,14 @@ def operating_cost(building, settings, energy):
             if not annual_kwh:
                 continue
             price = settings.export_prices.get(carrier)
-            revenue, basis = (
-                (None, "export price is missing")
+            revenue, yearly, basis = (
+                (None, None, "export price is missing")
                 if price is None
-                else annual_factor_product(
+                else _priced(
                     price,
                     annual_kwh,
                     supplied.exported_hourly_by_carrier.get(carrier),
-                    flat=settings.flat_profile_for_annual_energy,
+                    settings,
                 )
             )
             if revenue is None:
@@ -283,6 +553,8 @@ def operating_cost(building, settings, energy):
                 continue
             key = f"{carrier}_export"
             by_carrier[key] = -revenue
+            if yearly is not None:
+                yearly_by_carrier[key] = tuple(-v for v in yearly)
             lines.append(
                 {
                     "carrier": key,
@@ -305,6 +577,17 @@ def operating_cost(building, settings, energy):
             if annual is not None and settings.period_years is not None
             else None
         )
+        yearly = None
+        if yearly_by_carrier and period is not None:
+            shares = list(years(settings.period_years))
+            yearly = tuple(
+                math.fsum(
+                    yearly_by_carrier[c][i] if c in yearly_by_carrier else a * share
+                    for c, a in by_carrier.items()
+                )
+                for i, (_, share) in enumerate(shares)
+            )
+            period = math.fsum(yearly)
         results.append(
             OperatingCost(
                 step,
@@ -315,6 +598,20 @@ def operating_cost(building, settings, energy):
                 period,
                 tuple(lines),
                 tuple(dict.fromkeys(requirements)),
+                None
+                if period is None
+                else present_value(
+                    annual,
+                    settings.period_years,
+                    rate=settings.discount_rate,
+                    escalation=settings.price_escalation,
+                )
+                if yearly is None
+                else math.fsum(
+                    v / (1 + settings.discount_rate) ** year
+                    for (year, _), v in zip(years(settings.period_years), yearly)
+                ),
+                yearly,
             )
         )
     return tuple(results)
@@ -337,7 +634,7 @@ def assess_renovation_cost(
     energy : mapping of int to AnnualEnergy, optional
         Delivered energy per state, as for ``assess_renovation``: 0 is the
         baseline and n the state after stage n. Hourly values are weighted by
-        hourly prices; no discounting is applied.
+        hourly prices; present values use the settings' discount rate.
 
     Returns
     -------
@@ -456,4 +753,10 @@ def assess_renovation_cost(
         settings.currency,
         {"epsm_lca": __version__, "method": "catalogue-unit-rates/1"},
         operating_cost(building, settings, energy or {}),
+        settings.discount_rate,
+        settings.price_escalation,
+        settings.period_years,
+        replacement_cost(building, settings, stages)
+        if settings.include_replacements
+        else (),
     )

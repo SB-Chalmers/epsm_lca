@@ -194,3 +194,196 @@ def test_pv_and_dhw_carbon_use_area_records_and_direct_factors(library):
     assert assess_renovation_cost(dhw, CostSettings.from_catalogue(renovations)).stages[
         0
     ].total == (pytest.approx(90 * area))
+
+
+def test_simple_cost_payback_divides_investment_by_operating_saving():
+    from types import MappingProxyType
+
+    from epsm_lca import OperatingCost, RenovationCostResult, StageCost
+
+    def stage(step, total):
+        return StageCost(
+            step,
+            f"s{step}",
+            (),
+            "SEK",
+            (),
+            MappingProxyType({}),
+            MappingProxyType({}),
+            0.0,
+            total or 0.0,
+            total,
+            (2026,),
+        )
+
+    def running(step, annual):
+        return OperatingCost(
+            step, f"state{step}", "SEK", MappingProxyType({}), annual, None
+        )
+
+    result = RenovationCostResult(
+        (stage(1, 10000.0), stage(2, 20000.0)),
+        "SEK",
+        operating=(running(0, 9000.0), running(1, 7000.0), running(2, 4000.0)),
+    )
+    assert result.simple_payback_years(1) == pytest.approx(5.0)
+    assert result.simple_payback_years(2) == pytest.approx(6.0)
+    assert result.summary()["simple_payback_years_by_step"] == {1: 5.0, 2: 6.0}
+    unknown = RenovationCostResult(
+        (stage(1, None),), "SEK", operating=(running(0, 9000.0), running(1, 7000.0))
+    )
+    assert unknown.simple_payback_years(1) is None
+
+
+def test_global_cost_and_discounted_payback_are_checkable_by_hand():
+    from types import MappingProxyType
+
+    from epsm_lca import OperatingCost, RenovationCostResult, StageCost
+
+    stage = StageCost(
+        1,
+        "s1",
+        (),
+        "SEK",
+        (),
+        MappingProxyType({}),
+        MappingProxyType({}),
+        0.0,
+        250.0,
+        250.0,
+        (2026,),
+    )
+
+    def running(step, annual, present):
+        return OperatingCost(
+            step,
+            f"s{step}",
+            "SEK",
+            MappingProxyType({}),
+            annual,
+            None,
+            present_value=present,
+        )
+
+    result = RenovationCostResult(
+        (stage,), "SEK", operating=(running(0, 300.0, 600.0), running(1, 200.0, 400.0))
+    )
+    assert result.global_cost(0) == 600.0
+    assert result.global_cost(1) == 650.0  # 250 invested + 400 operating
+    assert result.discounted_payback_years(1) == pytest.approx(2.5)
+    discounted = RenovationCostResult(
+        (stage,), "SEK", operating=result.operating, discount_rate=0.1
+    )
+    # Three discounted years repay 90.91 + 82.64 + 75.13 = 248.69 of 250.
+    repaid = sum(100 / 1.1**t for t in (1, 2, 3))
+    assert discounted.discounted_payback_years(1) == pytest.approx(
+        3 + (250 - repaid) / (100 / 1.1**4)
+    )
+    never = RenovationCostResult(
+        (stage,), "SEK", operating=result.operating, discount_rate=0.5
+    )
+    assert never.discounted_payback_years(1) is None
+    assert never.summary()["discounted_payback_years_by_step"] == {1: None}
+
+
+def test_cost_payback_follows_yearly_operating_costs():
+    from types import MappingProxyType
+
+    from epsm_lca import OperatingCost, RenovationCostResult, StageCost
+
+    stage = StageCost(
+        1,
+        "s1",
+        (),
+        "SEK",
+        (),
+        MappingProxyType({}),
+        MappingProxyType({}),
+        0.0,
+        250.0,
+        250.0,
+        (2026,),
+    )
+    base = OperatingCost(
+        0, "s0", "SEK", MappingProxyType({}), 200.0, 600.0, yearly=(100.0, 200.0, 300.0)
+    )
+    after = OperatingCost(1, "s1", "SEK", MappingProxyType({}), 0.0, 0.0)
+    result = RenovationCostResult(
+        (stage,), "SEK", operating=(base, after), period_years=3
+    )
+    # Savings of 100, 200 and 300: 250 is repaid three quarters into year 2.
+    assert result.simple_payback_years(1) == pytest.approx(1.75)
+    discounted = RenovationCostResult(
+        (stage,), "SEK", operating=(base, after), discount_rate=0.1, period_years=3
+    )
+    first = 100 / 1.1
+    assert discounted.discounted_payback_years(1) == pytest.approx(
+        1 + (250 - first) / (200 / 1.1**2)
+    )
+
+
+def test_catalogue_service_lives_drive_replacement_counts(library):
+    from dataclasses import fields
+
+    from epsm_core.building import RenovationStage
+
+    if not any(f.name == "installed_by" for f in fields(RenovationStage)):
+        pytest.skip("this epsm_core does not record installing measures")
+    renovations = RenovationCatalogue.load(library)
+    child = apply_candidates(
+        building(library),
+        renovations.get("insulate_wall.stone_wool_200"),
+        renovations.get("upgrade_ventilation.ftx_080"),
+    )
+    settings = AssessmentSettings.from_building(
+        child,
+        period_years=60,
+        catalogue=library,
+        renovations=renovations,
+        material_modules=("A1A3",),
+        include_energy=False,
+        include_replacements=True,
+    )
+    assert settings.service_lives["upgrade_ventilation.ftx_080"].years == 25
+    assert settings.service_lives["insulate_wall.stone_wool_200"].years == 50
+    stage = assess_renovation(child, settings).stages[0]
+    assert stage.complete
+    by = dict(child.stages[0].installed_by)
+    lives = {"upgrade_ventilation.ftx_080": 2, "insulate_wall.stone_wool_200": 1}
+    expected = sum(
+        c["gwp_kgco2e"] * lives.get(by[c["occurrence_id"]], 0)
+        for c in stage.contributions
+        if c["module"] == "A1A3"
+    )
+    assert stage.replacement_kgco2e == pytest.approx(expected)
+    assert expected > 0
+
+
+def test_measures_are_bought_again_when_their_service_life_ends(library):
+    renovations = RenovationCatalogue.load(library, costs=overlay())
+    child = apply_candidates(
+        building(library), renovations.get("insulate_wall.stone_wool_200")
+    )
+    settings = CostSettings.from_catalogue(
+        renovations, period_years=60, discount_rate=0.03, include_replacements=True
+    )
+    result = assess_renovation_cost(child, settings)
+    baseline, after = result.replacements
+    assert baseline.total == 0 and baseline.lines == ()
+    stage = result.stages[0]
+    (line,) = after.lines
+    assert (line["year"], line["cost"]) == (50.0, pytest.approx(stage.total))
+    assert after.present_value == pytest.approx(stage.total / 1.03**50)
+    assert result.summary()["replacement_cost_by_step"] == {0: 0.0, 1: after.total}
+    short = CostSettings.from_catalogue(
+        renovations, period_years=40, include_replacements=True
+    )
+    assert assess_renovation_cost(child, short).replacements[1].lines == ()
+    unknown = CostSettings(
+        settings.estimates, period_years=60, include_replacements=True
+    )
+    missing = assess_renovation_cost(child, unknown).replacements[1]
+    assert missing.total is None
+    assert (
+        "insulate_wall.stone_wool_200: service life is missing" in missing.requirements
+    )

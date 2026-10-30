@@ -86,16 +86,39 @@ def test_valid_older_results_remain_readable_without_invented_context():
         LCAResult.from_dict({**result.to_dict(), "format": "future"})
 
 
-def test_old_settings_do_not_invent_unrecorded_choices():
-    old = dict(
+def test_format_one_settings_held_by_saved_buildings_still_load():
+    saved = AssessmentSettings(30).to_dict()
+    for name in (
+        "reference_area_m2",
+        "reference_area_basis",
+        "include_replacements",
+        "service_lives",
+    ):
+        del saved[name]
+    old = {**saved, "format": "epsm-lca-settings/1"}
+    assert AssessmentSettings.from_dict(old) == AssessmentSettings(30)
+    unversioned = dict(
         period_years=30,
         energy_boundary="space_heating_and_fans",
         baseline="retained",
         material_modules=("A1A3",),
     )
-    assert AssessmentSettings.from_dict(old).include_energy is True
+    assert AssessmentSettings.from_dict(unversioned).include_energy is True
     with pytest.raises(ValueError, match="lack recorded"):
         AssessmentSettings.from_dict({"period_years": 30})
+    with pytest.raises(ValueError, match="Unsupported"):
+        AssessmentSettings.from_dict({**saved, "format": "epsm-lca-settings/9"})
+
+
+def test_reference_area_requires_a_basis():
+    with pytest.raises(ValueError, match="together"):
+        AssessmentSettings(30, reference_area_m2=100.0)
+    with pytest.raises(ValueError, match="positive"):
+        AssessmentSettings(30, reference_area_m2=0.0, reference_area_basis="Atemp")
+    settings = AssessmentSettings(
+        30, reference_area_m2=100, reference_area_basis="Atemp"
+    )
+    assert AssessmentSettings.from_dict(settings.to_dict()) == settings
 
 
 @pytest.mark.parametrize(

@@ -76,3 +76,28 @@ settings = AssessmentSettings(50, energy_boundary=energy.boundary, carrier_facto
   or to combined totals.
 - **Export, cost:** `CostSettings(export_prices=...)` credits export revenue in the
   operating cost. Exports without a price leave the operating cost incomplete.
+
+## Factors and prices that change from year to year
+
+A `FactorTrajectory` holds one `FactorProfile` per year of the assessment period,
+for example a grid that decarbonises or a scenario of energy prices. Year 1 is the
+first year of the period, and a partial last year counts for its share.
+
+```python
+from epsm_lca import FactorTrajectory
+
+grid = FactorTrajectory.from_values(
+    [0.10 - 0.002 * year for year in range(30)], "kgCO2e/kWh", "Scenario source"
+)
+settings = AssessmentSettings(30, carrier_factors={"electricity": grid})
+```
+
+- The trajectory must cover every year of the period; later years are never
+  extrapolated, and a shorter trajectory is rejected.
+- Each year can itself be a weekday/weekend, monthly or hourly profile; those
+  still need hourly delivered energy unless the flat approximation is allowed.
+- B6 contributions list `yearly_gwp_kgco2e`. Carbon payback then follows the
+  yearly savings and is `None` when they do not repay within the period.
+- As a price, a trajectory needs `period_years`. `price_escalation` must be 0,
+  since the trajectory already states each year's price. Operating costs list
+  `yearly` costs, discounted year by year; paybacks follow them.

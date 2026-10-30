@@ -1,3 +1,27 @@
+# LCA 0.4.0 — payback, discounting and replacements (30 October 2026)
+
+Renovation reports give each step its renovation carbon, carbon payback in years
+and, with a declared reference area, totals per m² and per m² and year.
+`AssessmentSettings.from_building` uses Core's conditioned floor area unless one
+is supplied. Cost results report undiscounted payback per step. Renovation reports
+move to format 2 and older reports are not read; format 1 settings still load.
+
+`CostSettings` takes a real `discount_rate` and `price_escalation`. Operating
+costs report a present value, and cost results give global cost per state and
+discounted payback per step. Both rates default to 0, which keeps today's totals.
+
+`FactorTrajectory` gives carrier carbon factors and energy prices one profile per
+year of the period, for decarbonising grids and price scenarios. B6, module D,
+operating cost, present values and paybacks follow it year by year.
+
+With `include_replacements=True`, renovation work whose `ServiceLife` ends within
+the period is replaced `ceil(period / life) − 1` times: module B4 repeats its
+installation and removal modules, and the cost result buys the measure again,
+discounted. Service lives come from the renovation catalogue or are supplied per
+measure. Replacement carbon requires Core 0.9.1, which records the installing
+measure per occurrence; with Core 0.9.0 the report states that requirement
+instead of a B4 total. Replacement cost works with either.
+
 # LCA 0.3.0 — renovation cost and time-varying energy (29 October 2026)
 
 `assess_renovation_cost` prices renovation stages from the catalogue's cost

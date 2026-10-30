@@ -10,8 +10,10 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
+from ._timeline import repay, years
 from ._validation import finite_sum, number, optional_number, same_total
 from .assessment import quantity_record
+from .indicators import payback_years, per_area
 from .result import LCAResult
 from .settings import AssessmentSettings
 
@@ -52,6 +54,9 @@ class StageResult:
         Zero is baseline; renovation steps start at one.
     material_kgco2e, material_so_far_kgco2e : float or None
         Impact of this step and accumulated material impact through this step.
+    replacement_kgco2e : float or None
+        B4 replacement of this state's renovation work over the period; None
+        when replacements are not counted or cannot be completed.
     energy_kgco2e, total_kgco2e, savings_kgco2e : float or None
         This state's energy impact, combined total and baseline minus total.
     added_quantities, removed_quantities : tuple of dict
@@ -100,6 +105,7 @@ class StageResult:
         contributions=(),
         include_energy=True,
         diagnostic_codes=None,
+        replacement_kgco2e=None,
     ):
         from epsm_core import BuildingSnapshot
 
@@ -115,10 +121,13 @@ class StageResult:
         cumulative = optional_number(material_so_far_kgco2e, "material impact so far")
         operating = optional_number(energy_kgco2e, "energy impact")
         total = optional_number(total_kgco2e, "total climate impact")
+        replacement = optional_number(replacement_kgco2e, "replacement impact")
         savings = optional_number(savings_kgco2e, "climate savings")
-        LCAResult(
+        LCAResult(  # B4 belongs to the material side of the combined total.
             status,
-            cumulative,
+            cumulative
+            if replacement is None or cumulative is None
+            else finite_sum((cumulative, replacement)),
             operating,
             total,
             requirements,
@@ -129,12 +138,12 @@ class StageResult:
         records = tuple(dict(r) for r in contributions)
         for r in records:
             number(r.get("gwp_kgco2e"), "contribution impact")
-        for operating_part, claimed in ((False, material), (True, operating)):
-            values = [
-                r["gwp_kgco2e"]
-                for r in records
-                if (r.get("module") == "B6") == operating_part
-            ]
+
+        def part(record):
+            return record.get("module") if record.get("module") in {"B4", "B6"} else "A"
+
+        for kind, claimed in (("A", material), ("B4", replacement), ("B6", operating)):
+            values = [r["gwp_kgco2e"] for r in records if part(r) == kind]
             if values and claimed is not None:
                 expected = finite_sum(values)
                 if expected is None or not same_total(claimed, expected):
@@ -155,6 +164,7 @@ class StageResult:
             energy_kgco2e=operating,
             total_kgco2e=total,
             savings_kgco2e=savings,
+            replacement_kgco2e=replacement,
             status=status,
             requirements=tuple(requirements),
             added_quantities=added,
@@ -177,6 +187,7 @@ class StageResult:
                 "energy_kgco2e",
                 "total_kgco2e",
                 "savings_kgco2e",
+                "replacement_kgco2e",
                 "status",
                 "requirements",
             )
@@ -244,6 +255,65 @@ class StageResult:
         return f"StageResult(step={s['step']}, status={s['status']!r}, total_kgco2e={s['total_kgco2e']!r}, added={s['added_count']}, removed={s['removed_count']})"
 
     __str__ = __repr__
+
+
+def yearly_energy(row, period):
+    """Each year's B6 impact when a trajectory was used; otherwise None."""
+    records = [c for c in row["contributions"] if c.get("module") == "B6"]
+    if not any("yearly_gwp_kgco2e" in c for c in records):
+        return None
+    return [
+        sum(
+            c["yearly_gwp_kgco2e"][year - 1]
+            if "yearly_gwp_kgco2e" in c
+            else c["gwp_kgco2e"] * share / period
+            for c in records
+        )
+        for year, share in years(period)
+    ]
+
+
+def indicators(row, report):
+    """Renovation carbon, payback and per-area totals for one saved row.
+
+    Renovation carbon is material impact so far minus the baseline's. Annual
+    saving is the baseline's energy impact minus this row's, over the period.
+    With yearly factor trajectories, payback follows the yearly savings and is
+    None when they do not repay within the period.
+    """
+    baseline, settings = report["baseline"], report["settings"]
+    period, area = settings["period_years"], settings["reference_area_m2"]
+    renovation = (
+        None
+        if row["material_so_far_kgco2e"] is None
+        or baseline["material_so_far_kgco2e"] is None
+        else row["material_so_far_kgco2e"] - baseline["material_so_far_kgco2e"]
+    )
+    saving = (
+        None
+        if row["step"] == 0
+        or row["energy_kgco2e"] is None
+        or baseline["energy_kgco2e"] is None
+        else (baseline["energy_kgco2e"] - row["energy_kgco2e"]) / period
+    )
+    payback = payback_years(renovation, saving)
+    if saving is not None:
+        before, after = yearly_energy(baseline, period), yearly_energy(row, period)
+        if before is not None or after is not None:
+            flat = [share / period for _, share in years(period)]
+            before = before or [baseline["energy_kgco2e"] * s for s in flat]
+            after = after or [row["energy_kgco2e"] * s for s in flat]
+            payback = repay(renovation, [b - a for b, a in zip(before, after)])
+    total_per_m2 = per_area(row["total_kgco2e"], area)
+    return {
+        "renovation_kgco2e": renovation,
+        "annual_energy_saving_kgco2e": saving,
+        "carbon_payback_years": payback,
+        "total_kgco2e_per_m2": total_per_m2,
+        "total_kgco2e_per_m2_year": None
+        if total_per_m2 is None
+        else total_per_m2 / period,
+    }
 
 
 @dataclass(frozen=True, init=False, repr=False)
@@ -323,7 +393,7 @@ class RenovationResult:
                     "Climate savings disagree with the baseline comparison"
                 )
         data = {
-            "format": "epsm-lca-renovation/1",
+            "format": "epsm-lca-renovation/2",
             "baseline": baseline.to_dict(),
             "stages": [s.to_dict() for s in stages],
             "settings": settings.to_dict(),
@@ -335,6 +405,7 @@ class RenovationResult:
         object.__setattr__(
             self, "_json", json.dumps(data, sort_keys=True, allow_nan=False)
         )
+        final = indicators(data["stages"][-1] if stages else data["baseline"], data)
         summary = dict(
             status="complete"
             if all(s.complete for s in (baseline, *stages))
@@ -345,6 +416,9 @@ class RenovationResult:
             baseline_total_kgco2e=baseline.total_kgco2e,
             final_total_kgco2e=(stages[-1] if stages else baseline).total_kgco2e,
             final_savings_kgco2e=(stages[-1] if stages else baseline).savings_kgco2e,
+            final_carbon_payback_years=final["carbon_payback_years"],
+            reference_area_m2=settings.reference_area_m2,
+            reference_area_basis=settings.reference_area_basis,
             incomplete_steps=[s.step for s in (baseline, *stages) if not s.complete],
         )
         object.__setattr__(
@@ -372,22 +446,31 @@ class RenovationResult:
         return json.loads(self._summary_json)
 
     def table(self) -> list[dict]:
-        """Return one independent row per state; all impacts are in kg CO2e."""
+        """Return one independent row per state; impacts are in kg CO2e.
+
+        Each row also has its renovation carbon, carbon payback in years and,
+        with a reference area, totals per m² and per m² and year. These are
+        derived from the row and the baseline; unknown inputs give None.
+        """
         data = self.to_dict()
         return [
             {
-                k: row[k]
-                for k in (
-                    "step",
-                    "measure_ids",
-                    "material_kgco2e",
-                    "material_so_far_kgco2e",
-                    "energy_kgco2e",
-                    "total_kgco2e",
-                    "savings_kgco2e",
-                    "status",
-                    "requirements",
-                )
+                **{
+                    k: row[k]
+                    for k in (
+                        "step",
+                        "measure_ids",
+                        "material_kgco2e",
+                        "material_so_far_kgco2e",
+                        "replacement_kgco2e",
+                        "energy_kgco2e",
+                        "total_kgco2e",
+                        "savings_kgco2e",
+                        "status",
+                        "requirements",
+                    )
+                },
+                **indicators(row, data),
             }
             for row in (data["baseline"], *data["stages"])
         ]
@@ -423,7 +506,7 @@ class RenovationResult:
         return aggregate_quantities(rows) if by_material else rows
 
     def to_dict(self) -> dict:
-        """Return independent complete inputs and results in report format 1."""
+        """Return independent complete inputs and results in report format 2."""
         return json.loads(self._json)
 
     @classmethod
@@ -439,7 +522,7 @@ class RenovationResult:
         from .renovation import _assess_renovation
 
         data = dict(value)
-        if data.get("format") != "epsm-lca-renovation/1":
+        if data.get("format") != "epsm-lca-renovation/2":
             raise ValueError("Unsupported renovation report format")
         required = {
             "format",
