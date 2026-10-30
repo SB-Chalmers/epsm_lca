@@ -553,3 +553,102 @@ def test_replacements_need_service_lives_and_skip_removed_work(case):
     report = assess_renovation(twice, replace(unknown, service_lives=lives))
     # Only the second set of windows survives; the first is not replaced again.
     assert [s.replacement_kgco2e for s in report.stages] == pytest.approx([220, 220])
+
+
+def test_coverage_counts_factored_occurrences_and_known_mass(case):
+    _, _, _, _, two, settings, energy = case
+    report = assess_renovation(two, settings, energy=energy)
+    coverage = report.coverage()
+    assert [c["step"] for c in coverage] == [0, 1, 2]
+    assert [c["status"] for c in coverage] == ["complete"] * 3
+    windows = {m["module"]: m for m in coverage[1]["modules"]}
+    assert windows["A1A3"]["action"] == "added" and windows["C4"]["action"] == "removed"
+    # Windows are declared per m2, so their mass is unknown and never pretended.
+    assert windows["A1A3"]["covered_occurrences"] == windows["A1A3"]["occurrences"] == 4
+    assert windows["A1A3"]["occurrence_share"] == 1.0
+    assert windows["A1A3"]["mass_share"] is None
+    assert windows["A1A3"]["mass_unknown_occurrences"] == 4
+    insulation = {m["module"]: m for m in coverage[2]["modules"]}
+    assert insulation["A4"]["mass_kg"] == pytest.approx(140)
+    assert insulation["A4"]["covered_mass_kg"] == pytest.approx(140)
+    assert insulation["A4"]["mass_share"] == 1.0
+    assert (
+        insulation["C1"]["occurrences"] == 0 and insulation["C1"]["mass_share"] is None
+    )
+    sources = coverage[2]["sources"]
+    assert sources["material"]["total_kgco2e"] == pytest.approx(280)
+    assert sources["material"]["share_by_source_kind"] == {"other": 1.0}
+    assert sources["energy"]["by_source_kind"] == {"other": pytest.approx(24000)}
+    assert "replacement" not in sources
+
+
+def test_coverage_shows_the_missing_module_of_an_incomplete_step(case):
+    _, _, _, _, two, settings, energy = case
+    factors = {
+        identity: {
+            m: f
+            for m, f in modules.items()
+            if (identity, m) != ("reference.insulation", "A4")
+        }
+        for identity, modules in settings.material_factors.items()
+    }
+    report = assess_renovation(
+        two, replace(settings, material_factors=factors), energy=energy
+    )
+    step = report.coverage()[2]
+    assert step["status"] == "incomplete"
+    modules = {m["module"]: m for m in step["modules"]}
+    assert modules["A1A3"]["covered_occurrences"] == 4
+    assert modules["A4"]["covered_occurrences"] == 0
+    assert modules["A4"]["mass_share"] == 0.0
+    # No ranking over partial contributions: step 2 is left out.
+    assert {r["step"] for r in report.sensitivity()} == {1}
+    assert {r["step"] for r in report.sensitivity(target="total")} == {0, 1}
+
+
+def test_sensitivity_swings_follow_each_drivers_linear_impact(case):
+    _, _, _, _, two, settings, energy = case
+    report = assess_renovation(two, settings, energy=energy)
+    rows = [r for r in report.sensitivity() if r["step"] == 2]
+    assert [(r["driver_kind"], r["driver"]) for r in rows] == [
+        ("carrier", "electricity"),
+        ("material", "reference.insulation"),
+        ("material", "Teaching replacement windows"),
+        ("material", "reference.WINDOW"),
+    ]
+    # Baseline electricity 30,000 minus step 2's 24,000; materials cost carbon.
+    assert [r["impact_kgco2e"] for r in rows] == pytest.approx([6000, -280, -200, -20])
+    assert sum(r["impact_kgco2e"] for r in rows) == pytest.approx(5500)
+    assert rows[0]["share"] == pytest.approx(6000 / 5500)
+    assert rows[0]["swing_kgco2e"] == pytest.approx(1500)
+    assert (rows[0]["low_kgco2e"], rows[0]["high_kgco2e"]) == pytest.approx(
+        (4000, 7000)
+    )
+    assert rows[1]["swing_kgco2e"] == pytest.approx(70)
+    assert rows[0]["source_kinds"] == ("other",)
+    assert all(r["target"] == "savings" for r in rows)
+    totals = [
+        r for r in report.sensitivity(target="total", fraction=0.1) if r["step"] == 2
+    ]
+    assert sum(r["impact_kgco2e"] for r in totals) == pytest.approx(24500)
+    assert totals[0]["swing_kgco2e"] == pytest.approx(2400)
+    with pytest.raises(ValueError, match="fraction"):
+        report.sensitivity(fraction=0)
+    with pytest.raises(ValueError, match="target"):
+        report.sensitivity(target="payback")
+
+
+@pytest.mark.parametrize(
+    "source,kind",
+    [
+        ("EPD-IES-0005222:003 | GWP-GHG; EN 15804 | https://example.org", "epd"),
+        ("ref-7 | GWP-GHG | https://example.org", "reference"),
+        ("EPD-1 | GWP-GHG | https://example.org | proxy for: sand 0/2", "proxy"),
+        ("Boverket 1234; version 2024; GWP-GHG AR4; A1-A3 Conservative", "boverket"),
+        ("Synthetic teaching factor", "other"),
+    ],
+)
+def test_source_kinds_come_from_how_the_source_is_written(source, kind):
+    from epsm_lca.coverage import source_kind
+
+    assert source_kind(source) == kind
