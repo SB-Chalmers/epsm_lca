@@ -1,4 +1,4 @@
-# LCA 0.4.0 (unreleased)
+# LCA 0.4.0 — payback, discounting and replacements (30 October 2026)
 
 Renovation reports give each step its renovation carbon, carbon payback in years
 and, with a declared reference area, totals per m² and per m² and year.
@@ -18,7 +18,9 @@ With `include_replacements=True`, renovation work whose `ServiceLife` ends withi
 the period is replaced `ceil(period / life) − 1` times: module B4 repeats its
 installation and removal modules, and the cost result buys the measure again,
 discounted. Service lives come from the renovation catalogue or are supplied per
-measure. Requires Core with installing measures recorded per occurrence.
+measure. Replacement carbon requires Core 0.9.1, which records the installing
+measure per occurrence; with Core 0.9.0 the report states that requirement
+instead of a B4 total. Replacement cost works with either.
 
 # LCA 0.3.0 — renovation cost and time-varying energy (29 October 2026)
 

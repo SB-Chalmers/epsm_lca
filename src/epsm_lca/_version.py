@@ -3,4 +3,4 @@
 # License: See LICENSE at the project root.
 """Single source of the development package version."""
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
