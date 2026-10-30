@@ -7,6 +7,11 @@ Boverket generic or other. `report.sensitivity(fraction=0.25)` ranks materials
 and energy carriers by how far a ±25 % change in their factors moves each step's
 savings or total; impacts are linear in factors, so nothing is recomputed.
 
+With replacements counted, each measure's last purchase keeps a straight-line
+residual value at the end of the period (EN 15459), discounted from that year.
+`ReplacementCost` lists it per measure, `global_cost` subtracts it, and the
+summary adds `residual_value_by_step`. Saved cost results gain the two fields.
+
 # LCA 0.4.0 — payback, discounting and replacements (30 October 2026)
 
 Renovation reports give each step its renovation carbon, carbon payback in years

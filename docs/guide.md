@@ -190,8 +190,10 @@ undiscounted period totals.
 
 - `operating[i].present_value`: the state's operating cost over the period.
 - `global_cost(step)`: stage costs through the step plus that state's operating
-  present value; step 0 is the baseline. The lowest global cost is the
-  cost-optimal state over the period (as in EN 15459, without residual value).
+  present value; step 0 is the baseline. With replacements counted, it adds
+  their present value and subtracts the residual value of work still in use at
+  the end of the period. The lowest global cost is the cost-optimal state over
+  the period (EN 15459).
 - `discounted_payback_years(step)`: when discounted savings repay the stage
   costs, interpolated within the year. `None` if they never do.
 
@@ -217,8 +219,13 @@ Work whose life ends within the period is replaced `ceil(period / life) − 1`
 times. Each step reports `replacement_kgco2e`, included in its total; B4
 contributions carry the replacement `year` and the `replaced_module`. On the cost
 side, `replacements` lists each measure bought again at its stage price,
-discounted to its year, and `global_cost` includes it. Existing baseline
-components are not replaced. Replacements need an `epsm_core` that records which
+discounted to its year, and `global_cost` includes it. Each measure also has a
+residual line: the share of its last purchase whose life runs past the period,
+valued straight-line and discounted from the period's end (EN 15459). A measure
+with a 50-year life over a 40-year period keeps 20 % of its price; over 60 years
+it is bought again at year 50 and keeps 80 % of that purchase. `global_cost`
+subtracts `residual_value`, so long-lived measures are no longer charged for
+life they have not used. Existing baseline components are not replaced. Replacements need an `epsm_core` that records which
 measure installed each material.
 
 ## Coverage and sensitivity
