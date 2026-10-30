@@ -221,6 +221,33 @@ discounted to its year, and `global_cost` includes it. Existing baseline
 components are not replaced. Replacements need an `epsm_core` that records which
 measure installed each material.
 
+## Coverage and sensitivity
+
+A complete report says every selected factor was found; it does not say what
+those factors rest on. `report.coverage()` gives one record per step with:
+
+- `modules`: for each selected material module, the occurrences and the known
+  mass that have a factor, against all added (A modules) or removed (C modules)
+  occurrences. Occurrences without a known mass are counted in
+  `mass_unknown_occurrences` rather than hidden in a share.
+- `sources`: each step's known material, replacement and energy impact split by
+  source kind. `epd` is a declared reference whose identifier starts with `EPD`,
+  `reference` any other `CarbonReference`, `proxy` a reference standing in for
+  another product, `boverket` the climate database's generic values and `other`
+  a factor given by hand.
+
+`report.sensitivity(fraction=0.25, target="savings")` ranks what to improve
+first. Every impact is factor × quantity, so a ±25 % change in one material's
+factors moves a step's total by ±25 % of that material's impact so far, and
+moves its savings by ±25 % of the baseline's impact minus the step's. A carrier
+counts the same way for B6. Each row carries the driver's impact in the target,
+its share, the swing and the low and high values. In the teaching example, both
+steps save 5,500 kg CO₂e; electricity carries 6,000 kg of that, so a 25 % change
+in its factor swings the saving by 1,500 kg, while the materials together carry
+−500 kg and swing it by 125 kg. Use `target="total"` for each state's total.
+Incomplete steps are left out, because a ranking over partial contributions
+would be wrong.
+
 ## Missing inputs, saving and plotting
 
 Missing factors, unknown quantities and unresolved physical edits leave totals
