@@ -1,3 +1,21 @@
+# LCA 0.5.0 — factor coverage, sensitivity and residual value (13 November 2026)
+
+`report.coverage()` says, per step and material module, how many occurrences
+and how much known mass have a factor, and splits each step's known material,
+replacement and energy impacts by source kind: EPD, declared reference, proxy,
+Boverket generic or other. `report.sensitivity(fraction=0.25)` ranks materials
+and energy carriers by how far a ±25 % change in their factors moves each step's
+savings or total; impacts are linear in factors, so nothing is recomputed.
+
+With replacements counted, each measure's last purchase keeps a straight-line
+residual value at the end of the period (EN 15459), discounted from that year.
+`ReplacementCost` lists it per measure, `global_cost` subtracts it, and the
+summary adds `residual_value_by_step`. Saved cost results gain the two fields.
+
+The actual-renovation example builds `RCSettings` with explicit airflow and ground
+choices for RC 0.12.0, whose default model is ISO 52016-1, instead of the
+deprecated `from_policy` profile.
+
 # LCA 0.4.0 — payback, discounting and replacements (30 October 2026)
 
 Renovation reports give each step its renovation carbon, carbon payback in years

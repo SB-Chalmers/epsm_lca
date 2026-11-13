@@ -53,6 +53,12 @@ remaining lives are unknown. Carbon payback compares the initial renovation
 carbon with energy savings; it does not include B4. Missing removal or
 energy factors are not invented.
 
+On the cost side, each surviving measure's last purchase keeps a residual value
+at the end of the period: price × remaining life ÷ service life, discounted from
+the period's end (EN 15459 straight-line residual value). Global cost adds
+replacement purchases and subtracts this residual value. Carbon has no residual
+value: EN 15978 counts whole replacements.
+
 An edit that changes material identities or quantities outside a recorded
 renovation leaves the affected history incomplete. Nonmaterial authoring changes
 use the recorded reached state. Annual energy must match that state's identity.

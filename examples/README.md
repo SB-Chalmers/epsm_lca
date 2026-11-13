@@ -46,8 +46,8 @@ Advanced products with Boverket factors. The electricity/district-heating climat
 factors and window-removal factors are clearly labelled assumptions.
 
 Install the `integration` and `examples` extras as well, with EPSM and RC from the
-same supported combination. The helper explicitly selects
-`epsm_rc_5r1c_v1`, `sensible_only_unlimited_supply` airflow and
+same supported combination. The helper runs RC's default
+ISO 52016-1 model (RC 0.12.0) and explicitly selects `sensible_only_unlimited_supply` airflow and
 `conductance_multiplier` ground treatment. These are modelling assumptions. Their bundled Gothenburg EPW supplies the
 weather; no service or EnergyPlus installation is needed for the RC route.
 Run all six notebooks with `python scripts/run_examples.py --integration`.

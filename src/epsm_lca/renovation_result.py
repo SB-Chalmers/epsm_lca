@@ -13,8 +13,10 @@ from pathlib import Path
 from ._timeline import repay, years
 from ._validation import finite_sum, number, optional_number, same_total
 from .assessment import quantity_record
+from .coverage import report_coverage
 from .indicators import payback_years, per_area
 from .result import LCAResult
+from .sensitivity import sensitivity as rank_drivers
 from .settings import AssessmentSettings
 
 
@@ -474,6 +476,25 @@ class RenovationResult:
             }
             for row in (data["baseline"], *data["stages"])
         ]
+
+    def coverage(self) -> list[dict]:
+        """Factor coverage and source mix per step, in independent records.
+
+        Each step lists, per selected material module, how many occurrences
+        and how much known mass have a factor, and splits its known material,
+        replacement and energy impacts by source kind (EPD, declared reference,
+        proxy, Boverket generic or other). Missing factors stay missing.
+        """
+        return report_coverage(self.to_dict())
+
+    def sensitivity(self, *, fraction: float = 0.25, target: str = "savings"):
+        """Rank materials and carriers by the swing of ±``fraction`` in their factors.
+
+        ``target`` is ``"savings"`` against the baseline (renovation steps) or
+        each step's ``"total"``. Impacts are linear in factors, so no value is
+        recomputed. Incomplete steps are left out.
+        """
+        return rank_drivers(self.to_dict(), fraction=fraction, target=target)
 
     def quantities(
         self,

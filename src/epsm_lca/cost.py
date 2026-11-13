@@ -229,7 +229,13 @@ class StageCost:
 
 @dataclass(frozen=True)
 class ReplacementCost:
-    """Measures of one state bought again within the period, by year."""
+    """Measures of one state bought again within the period, and what is left.
+
+    ``lines`` are the purchases by year. ``residual_lines`` give each measure's
+    remaining life at the end of the period, valued as the share of its last
+    purchase still unused (EN 15459 straight-line residual value), and
+    ``residual_value`` is their present value.
+    """
 
     step: int
     currency: str
@@ -237,6 +243,8 @@ class ReplacementCost:
     total: float | None
     present_value: float | None
     requirements: tuple[str, ...] = ()
+    residual_lines: tuple[dict, ...] = ()
+    residual_value: float | None = None
 
     @property
     def status(self):
@@ -250,6 +258,8 @@ class ReplacementCost:
             "total": self.total,
             "present_value": self.present_value,
             "lines": [dict(line) for line in self.lines],
+            "residual_lines": [dict(line) for line in self.residual_lines],
+            "residual_value": self.residual_value,
             "requirements": list(self.requirements),
         }
 
@@ -338,8 +348,10 @@ class RenovationCostResult:
         """Stage costs through ``step`` plus this state's operating present value.
 
         Step 0 is the baseline's operating present value alone. Counted
-        replacements add their present value. None when an investment, the
-        state's operating cost or its replacements are incomplete.
+        replacements add their present value and subtract the residual value
+        of the work still in use at the end of the period. None when an
+        investment, the state's operating cost or its replacements are
+        incomplete.
 
         Examples
         --------
@@ -351,10 +363,14 @@ class RenovationCostResult:
         if investment is None or running is None:
             return None
         if self.replacements:
-            replaced = {r.step: r.present_value for r in self.replacements}.get(step)
-            if replaced is None:
+            replaced = {r.step: r for r in self.replacements}.get(step)
+            if (
+                replaced is None
+                or replaced.present_value is None
+                or replaced.residual_value is None
+            ):
                 return None
-            running += replaced
+            running += replaced.present_value - replaced.residual_value
         return investment + running
 
     def discounted_payback_years(self, step):
@@ -394,6 +410,9 @@ class RenovationCostResult:
                 s.step: self.discounted_payback_years(s.step) for s in self.stages
             },
             "replacement_cost_by_step": {r.step: r.total for r in self.replacements},
+            "residual_value_by_step": {
+                r.step: r.residual_value for r in self.replacements
+            },
         }
 
     def to_dict(self):
@@ -407,11 +426,18 @@ class RenovationCostResult:
 
 
 def replacement_cost(building, settings, stage_costs):
-    """Replacement purchases of every state's surviving priced measures."""
+    """Replacement purchases of every state's surviving priced measures.
+
+    Each surviving measure also gets a residual line: the share of its last
+    purchase (the original at year 0 or the last replacement) whose life runs
+    past the period, discounted from the period's end. Work whose life ends
+    exactly with the period leaves nothing.
+    """
     stages = tuple(building.stages)
+    period = settings.period_years or 0
     results = []
     for step in range(len(stages) + 1):
-        lines, missing = [], []
+        lines, residual, missing = [], [], []
         if settings.period_years is None:
             missing.append("period_years is needed to count replacements")
         surviving = surviving_installations(stages[:step])
@@ -433,7 +459,8 @@ def replacement_cost(building, settings, stage_costs):
                         f"{measure_id}: stage {cost.step} cost is incomplete; "
                         "its replacement cost is unknown"
                     )
-                for year in life.replacement_years(settings.period_years or 0):
+                replaced = life.replacement_years(period)
+                for year in replaced:
                     lines.append(
                         {
                             "measure_id": measure_id,
@@ -446,6 +473,21 @@ def replacement_cost(building, settings, stage_costs):
                             "service_life_source": life.source,
                         }
                     )
+                last = replaced[-1] if replaced else 0.0
+                remaining = max(last + life.years - period, 0.0)
+                left = amount * remaining / life.years
+                residual.append(
+                    {
+                        "measure_id": measure_id,
+                        "stage": cost.step,
+                        "last_purchase_year": last,
+                        "remaining_life_years": remaining,
+                        "residual": left,
+                        "present_value": left / (1 + settings.discount_rate) ** period,
+                        "service_life_years": life.years,
+                        "service_life_source": life.source,
+                    }
+                )
         missing = tuple(dict.fromkeys(missing))
         results.append(
             ReplacementCost(
@@ -457,6 +499,10 @@ def replacement_cost(building, settings, stage_costs):
                 if missing
                 else finite_sum(x["present_value"] for x in lines) or 0.0,
                 missing,
+                tuple(residual),
+                None
+                if missing
+                else finite_sum(x["present_value"] for x in residual) or 0.0,
             )
         )
     return tuple(results)

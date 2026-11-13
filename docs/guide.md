@@ -12,7 +12,7 @@ removed, their impacts, material impact so far, energy impact, total impact and
 savings compared with the baseline. Results are in **kg CO₂e**: climate impact
 expressed as an equivalent mass of carbon dioxide.
 
-**Version:** 0.4.0. Python 3.11 or newer. This is a climate assessment
+**Version:** 0.5.0. Python 3.11 or newer. This is a climate assessment
 of declared work and supplied energy, not a claim of complete building
 certification. Future replacements, final demolition and dated operating periods
 are not inferred.
@@ -190,8 +190,10 @@ undiscounted period totals.
 
 - `operating[i].present_value`: the state's operating cost over the period.
 - `global_cost(step)`: stage costs through the step plus that state's operating
-  present value; step 0 is the baseline. The lowest global cost is the
-  cost-optimal state over the period (as in EN 15459, without residual value).
+  present value; step 0 is the baseline. With replacements counted, it adds
+  their present value and subtracts the residual value of work still in use at
+  the end of the period. The lowest global cost is the cost-optimal state over
+  the period (EN 15459).
 - `discounted_payback_years(step)`: when discounted savings repay the stage
   costs, interpolated within the year. `None` if they never do.
 
@@ -217,9 +219,41 @@ Work whose life ends within the period is replaced `ceil(period / life) − 1`
 times. Each step reports `replacement_kgco2e`, included in its total; B4
 contributions carry the replacement `year` and the `replaced_module`. On the cost
 side, `replacements` lists each measure bought again at its stage price,
-discounted to its year, and `global_cost` includes it. Existing baseline
-components are not replaced. Replacements need an `epsm_core` that records which
+discounted to its year, and `global_cost` includes it. Each measure also has a
+residual line: the share of its last purchase whose life runs past the period,
+valued straight-line and discounted from the period's end (EN 15459). A measure
+with a 50-year life over a 40-year period keeps 20 % of its price; over 60 years
+it is bought again at year 50 and keeps 80 % of that purchase. `global_cost`
+subtracts `residual_value`, so long-lived measures are no longer charged for
+life they have not used. Existing baseline components are not replaced. Replacements need an `epsm_core` that records which
 measure installed each material.
+
+## Coverage and sensitivity
+
+A complete report says every selected factor was found; it does not say what
+those factors rest on. `report.coverage()` gives one record per step with:
+
+- `modules`: for each selected material module, the occurrences and the known
+  mass that have a factor, against all added (A modules) or removed (C modules)
+  occurrences. Occurrences without a known mass are counted in
+  `mass_unknown_occurrences` rather than hidden in a share.
+- `sources`: each step's known material, replacement and energy impact split by
+  source kind. `epd` is a declared reference whose identifier starts with `EPD`,
+  `reference` any other `CarbonReference`, `proxy` a reference standing in for
+  another product, `boverket` the climate database's generic values and `other`
+  a factor given by hand.
+
+`report.sensitivity(fraction=0.25, target="savings")` ranks what to improve
+first. Every impact is factor × quantity, so a ±25 % change in one material's
+factors moves a step's total by ±25 % of that material's impact so far, and
+moves its savings by ±25 % of the baseline's impact minus the step's. A carrier
+counts the same way for B6. Each row carries the driver's impact in the target,
+its share, the swing and the low and high values. In the teaching example, both
+steps save 5,500 kg CO₂e; electricity carries 6,000 kg of that, so a 25 % change
+in its factor swings the saving by 1,500 kg, while the materials together carry
+−500 kg and swing it by 125 kg. Use `target="total"` for each state's total.
+Incomplete steps are left out, because a ranking over partial contributions
+would be wrong.
 
 ## Missing inputs, saving and plotting
 
