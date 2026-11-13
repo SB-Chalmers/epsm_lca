@@ -126,8 +126,7 @@ def run_case(*, output, engine="epsm_rc", weather_path=None, energyplus_exe=None
     if engine == "epsm_rc":
         from epsm_rc import RCSettings
 
-        energy_options["settings"] = RCSettings.from_policy(
-            "epsm_rc_5r1c_v1",
+        energy_options["settings"] = RCSettings(
             airflow_policy="sensible_only_unlimited_supply",
             ground_policy="conductance_multiplier",
         )
